@@ -23,6 +23,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -91,6 +92,7 @@ type Server struct {
 	Writers           map[int32]*Writer
 	CurWriter         int32
 	Finished          bool
+	S3Endpoint		  string 
 }
 
 type DataStoreStatus struct {
@@ -136,12 +138,45 @@ type Response struct {
 	// other fields
 }
 
+var Gdebug = false 
+
+func debugPrint(fmt string,args ...interface{}) {
+	if Gdebug {
+		log.Printf("[\033[34;1mDEBG\033[0m]", args...)
+	}
+}
+
+func infoPrint(fmt string, args...interface{}) {
+	log.Printf("[\033[37;1mINFO\033[0m]"+fmt, args...)
+}
+
+func errorPrint(fmt string, args...interface{}) {
+	log.Printf("[\033[31;1mERR \033[0m]"+fmt, args...)
+}
+
+func warnPrint(fmt string, args...interface{}) {
+	log.Printf("[\033[33;1mWARN\033[0m]"+fmt, args...)
+}
 func main() {
-	srv := &http.Server{Addr: ":8007", Handler: &Server{Auth: make(map[string]TicketEntry)}}
-	srv2 := &http.Server{Addr: ":8008", Handler: &Server{Auth: make(map[string]TicketEntry)}}
+	certFlag := flag.String("cert", "server.crt", "Server SSL certificate file")
+	keyFlag := flag.String("key", "server.key", "Server SSL key file")
+	endpointFlag := flag.String("endpoint", "", "S3 Endpoint without https/http , host:port")
+	bindAddress := flag.String("bind", "127.0.0.1:8007", "PBS Protocol bind address, recommended 127.0.0.1:8007, use :8007 for all")
+
+	debug := flag.Bool("debug", false, "Debug logging")
+	flag.Parse()
+	if *endpointFlag == "" {
+		flag.Usage()
+		os.Exit(1)
+	}
+	Gdebug = *debug
+	srv := &http.Server{Addr: *bindAddress, Handler: &Server{Auth: make(map[string]TicketEntry), S3Endpoint : *endpointFlag}}
 	srv.SetKeepAlivesEnabled(true)
-	go srv.ListenAndServeTLS("server.crt", "server.key")
-	srv2.ListenAndServe()
+	infoPrint("Starting PBS api server on %s , upstream: %s", *bindAddress,*endpointFlag)
+	err := srv.ListenAndServeTLS(*certFlag, *keyFlag)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func (s *Server) handleHTTP2Backup(sock net.Conn, C TicketEntry, ds string, S Snapshot) {
@@ -150,7 +185,7 @@ func (s *Server) handleHTTP2Backup(sock net.Conn, C TicketEntry, ds string, S Sn
 	snew := &Server{Auth: make(map[string]TicketEntry), H2Ticket: &C, SelectedDataStore: &ds, Snapshot: &S, Writers: make(map[int32]*Writer), Finished: false}
 	srv.ServeConn(sock, &http2.ServeConnOpts{Handler: snew})
 	if !snew.Finished { //Incomplete backup because connection died pve side, remove from S3
-		log.Printf("Removing incomplete backup %s", snew.Snapshot.S3Prefix())
+		warnPrint("Removing incomplete backup %s", snew.Snapshot.S3Prefix())
 		objectsCh := make(chan minio.ObjectInfo)
 		go func() {
 			defer close(objectsCh)
@@ -165,7 +200,7 @@ func (s *Server) handleHTTP2Backup(sock net.Conn, C TicketEntry, ds string, S Sn
 		}()
 		errorCh := C.Client.RemoveObjects(context.Background(), ds, objectsCh, minio.RemoveObjectsOptions{})
 		for e := range errorCh {
-			log.Println("Failed to remove " + e.ObjectName + ", error: " + e.Err.Error())
+			errorPrint("Failed to remove " + e.ObjectName + ", error: " + e.Err.Error())
 		}
 	}
 }
@@ -315,7 +350,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		log.Printf("File %s not found in snapshot %s (%s)", r.URL.Query().Get("archive-name"), mostRecent.S3Prefix(), mostRecent.Files)
+		warnPrint("File %s not found in snapshot %s (%s)", r.URL.Query().Get("archive-name"), mostRecent.S3Prefix(), mostRecent.Files)
 
 		w.WriteHeader(http.StatusNotFound)
 		return
@@ -356,7 +391,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			s.Writers[int32(wid)].Size = binary.LittleEndian.Uint64(outFile[64:72])
 			s.Writers[int32(wid)].Chunksize = binary.NativeEndian.Uint64(outFile[72:80])
-			fmt.Println("Reusing old index")
+			debugPrint("Reusing old index")
 		} else {
 			outFile = make([]byte, 4096+32*len(s.Writers[int32(wid)].Assignments))
 			outFile[0], outFile[1], outFile[2], outFile[3], outFile[4], outFile[5], outFile[6], outFile[7] = 47, 127, 65, 237, 145, 253, 15, 205
@@ -381,6 +416,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				if s.Writers[int32(wid)].ReuseCSUM == "" {
 					w.WriteHeader(http.StatusInternalServerError)
 					io.WriteString(w, "Hole in index")
+					errorPrint("Backup failed because of hole in fixed index")
 					return
 				}
 			} else {
@@ -423,12 +459,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if len(req.DigestList) != len(req.OffsetList) {
 			w.WriteHeader(http.StatusBadRequest)
 			io.WriteString(w, "Digest list and Offset list size does not match")
+			errorPrint("%s: Digest list and Offset list size does not match", s.Writers[req.Wid].FidxName)
 			return
 		}
 		for i := 0; i < len(req.DigestList); i++ {
 			if req.OffsetList[i]%s.Writers[req.Wid].Chunksize != 0 {
 				w.WriteHeader(http.StatusBadRequest)
 				io.WriteString(w, "Chunk offset not at chunk-size boundary")
+				errorPrint("%s: Chunk offset not at chunk-size boundary", s.Writers[req.Wid].FidxName)
 				return
 			}
 		}
@@ -461,7 +499,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				w.Write([]byte(err.Error()))
 			}
 		} else {
-			log.Printf("%s already in S3", digest)
+			debugPrint("%s already in S3", digest)
 		}
 		if s.Writers[int32(wid)].Chunksize == 0 {
 			s.Writers[int32(wid)].Chunksize = uint64(size)
@@ -511,6 +549,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			w.WriteHeader(http.StatusNotFound)
 			w.Write([]byte(err.Error()))
+			errorPrint("%s: Critical: Missing chunk on S3 bucket: %s", digest, err.Error())
 			return
 		}
 		st, err := obj.Stat()
@@ -518,6 +557,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
 			log.Println(err.Error() + " " + s3name)
 			io.WriteString(w, err.Error())
+			errorPrint("%s: Critical: Missing chunk on S3 bucket: %s", digest, err.Error())
 			return
 		}
 
@@ -536,7 +576,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				fmt.Println(name, value)
 			}
 		}*/
-		log.Println("List buckets")
+		debugPrint("List buckets")
 		bckts, err := C.Client.ListBuckets(context.Background())
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -612,7 +652,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		te := TicketEntry{
 			AccessKeyID:     strings.Split(req.Username, "@")[0],
 			SecretAccessKey: req.Password,
-			Endpoint:        os.Args[1],
+			Endpoint:        s.S3Endpoint,
 		}
 		minioClient, err := minio.New(te.Endpoint, &minio.Options{
 			Creds:  credentials.NewStaticV4(te.AccessKeyID, te.SecretAccessKey, ""),
@@ -621,6 +661,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			//w.Header().Add("Connection", "Close")
 			log.Println(err.Error())
+			warnPrint("Failed S3 Connection: %s", err.Error())
 			w.WriteHeader(http.StatusForbidden)
 			w.Write([]byte(err.Error()))
 		}
@@ -630,15 +671,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.Auth[ticket.Ticket] = te
 
 		respbody, _ := json.Marshal(resp)
-		log.Println(string(respbody))
+		debugPrint(string(respbody))
 		w.Header().Add("Content-Type", "application/json")
 		//w.Header().Add("Connection", "Close")
 		w.WriteHeader(http.StatusOK)
 		w.Write(respbody)
 
 	}
-
-	// Log the request protocol
-	log.Printf("Got connection: %s %s %s", r.Proto, r.Method, r.RequestURI)
 
 }
