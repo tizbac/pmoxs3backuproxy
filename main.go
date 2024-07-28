@@ -218,6 +218,7 @@ func (s *Server) listSnapshots(c minio.Client, datastore string) ([]Snapshot, er
 	ctx := context.Background()
 	for object := range c.ListObjects(ctx, datastore, minio.ListObjectsOptions{Recursive: true, Prefix: "backups/"}) {
 		//log.Println(object.Key)
+		//The object name is backupid|unixtimestamp|type 
 		if strings.Count(object.Key, "/") == 2 {
 			path := strings.Split(object.Key, "/")
 			fields := strings.Split(path[1], "|")
@@ -375,35 +376,41 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		wid, _ := strconv.ParseInt(r.URL.Query().Get("wid"), 10, 32)
 		csumindex, _ := hex.DecodeString(r.URL.Query().Get("csum"))
 		outFile := make([]byte, 0)
-
+		//FIDX format is documented on Proxmox Backup docs pdf
 		if s.Writers[int32(wid)].ReuseCSUM != "" {
+			//In that case we load from S3 the specified reuse index
 			obj, err := s.H2Ticket.Client.GetObject(context.Background(), *s.SelectedDataStore, "indexed/"+s.Writers[int32(wid)].ReuseCSUM+".fidx", minio.GetObjectOptions{})
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				w.Write([]byte(err.Error()))
+				errorPrint("Failed to find index %s to be reused: %s", s.Writers[int32(wid)].ReuseCSUM, err.Error())
 				return
 			}
 			outFile, err = io.ReadAll(obj)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				w.Write([]byte(err.Error()))
+				errorPrint("Failed to find index %s to be reused: %s", s.Writers[int32(wid)].ReuseCSUM, err.Error())
 				return
 			}
+			//Chunk size and size cannot be known since incremental may potentially upload 0 chunks, so we take them from reused index
 			s.Writers[int32(wid)].Size = binary.LittleEndian.Uint64(outFile[64:72])
 			s.Writers[int32(wid)].Chunksize = binary.NativeEndian.Uint64(outFile[72:80])
+			
 			debugPrint("Reusing old index")
 		} else {
+			//In that case a new index is allocated, 4096 is the header, then size/chunksize blocks follow of 32 bytes ( chunk digest sha 256 )
 			outFile = make([]byte, 4096+32*len(s.Writers[int32(wid)].Assignments))
-			outFile[0], outFile[1], outFile[2], outFile[3], outFile[4], outFile[5], outFile[6], outFile[7] = 47, 127, 65, 237, 145, 253, 15, 205
-
+			outFile[0], outFile[1], outFile[2], outFile[3], outFile[4], outFile[5], outFile[6], outFile[7] = 47, 127, 65, 237, 145, 253, 15, 205 //Header magic as per PBS docs
+			//Chunksize in that case is derived from at least one chunk having been uploaded 
 			sl := binary.LittleEndian.AppendUint64(make([]byte, 0), s.Writers[int32(wid)].Size)
 			copy(outFile[64:72], sl)
 			sl = binary.LittleEndian.AppendUint64(make([]byte, 0), s.Writers[int32(wid)].Chunksize)
 			copy(outFile[72:80], sl)
 
 		}
-		copy(outFile[32:64], csumindex[0:32])
-		u := uuid.New()
+		copy(outFile[32:64], csumindex[0:32]) //Checksum is almost never the same , so it is changed with new backup
+		u := uuid.New() //Generate a new uuid too
 		b, _ := u.MarshalBinary()
 		copy(outFile[8:24], b)
 		sl := binary.LittleEndian.AppendUint64(make([]byte, 0), uint64(time.Now().Unix()))
@@ -420,6 +427,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			} else {
+				//4096 bytes is the header, being each element 32 bytes (sha256) after the header
 				copy(outFile[4096+32*k:4096+32*k+32], val)
 			}
 
@@ -430,14 +438,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))
+			errorPrint("%s failed to upload to S3 bucket: %s", s.Writers[int32(wid)].FidxName, err.Error())
 			return
 		}
+		//This copy of the object is later used to lookup when reuse-csum is in play ( incremental backup )
+		//It will waste a bit of space, but indexes overall are much smaller than actual data , so for now is a price that can be paid to avoid going thru all the files
 		_, err = s.H2Ticket.Client.CopyObject(context.Background(), minio.CopyDestOptions{Bucket: *s.SelectedDataStore, Object: "indexed/" + r.URL.Query().Get("csum") + ".fidx"}, minio.CopySrcOptions{Bucket: *s.SelectedDataStore, Object: s.Snapshot.S3Prefix() + "/" + s.Writers[int32(wid)].FidxName})
 		/*_, err = s.H2Ticket.Client.PutObject(context.Background(), *s.SelectedDataStore, "indexed/"+r.URL.Query().Get("csum"), R, int64(len(outFile)), minio.PutObjectOptions{UserMetadata: map[string]string{"csum": r.URL.Query().Get("csum")}})
 		 */
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))
+			errorPrint("%s failed to make a copy of the index on S3 bucket: %s", s.Writers[int32(wid)].FidxName, err.Error())
 			return
 		}
 	}
@@ -502,6 +514,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			debugPrint("%s already in S3", digest)
 		}
 		if s.Writers[int32(wid)].Chunksize == 0 {
+			//Here chunk size is derived
 			s.Writers[int32(wid)].Chunksize = uint64(size)
 		}
 	}
@@ -513,6 +526,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))
+			errorPrint("%s failed to upload blob to S3 bucket: %s", blobname, err.Error())
 		}
 
 	}
@@ -600,7 +614,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Add("Upgrade", "proxmox-backup-protocol-v1")
 		w.WriteHeader(http.StatusSwitchingProtocols)
 		hj, _ := w.(http.Hijacker)
-		conn, _, _ := hj.Hijack()
+		conn, _, _ := hj.Hijack()//Here SSL/TCP connection is deowned from the HTTP1.1 server and passed to HTTP2 handler after sending headers telling the client that we are switching protocols
 		ss := Snapshot{}
 		ss.initWithQuery(r.URL.Query())
 		go s.handleHTTP2Backup(conn, C, r.URL.Query().Get("store"), ss)
@@ -610,7 +624,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Add("Upgrade", "proxmox-backup-protocol-v1")
 		w.WriteHeader(http.StatusSwitchingProtocols)
 		hj, _ := w.(http.Hijacker)
-		conn, _, _ := hj.Hijack()
+		conn, _, _ := hj.Hijack()//Here SSL/TCP connection is deowned from the HTTP1.1 server and passed to HTTP2 handler after sending headers telling the client that we are switching protocols
 		ss := Snapshot{}
 		ss.initWithQuery(r.URL.Query())
 		go s.handleHTTP2Restore(conn, C, r.URL.Query().Get("store"), ss)
@@ -631,19 +645,19 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			for name, values := range r.Header {
 				// Loop over all values for the name.
 				for _, value := range values {
-					fmt.Println(name, value)
+					debugPrint("%s=%s",name, value)
 				}
 			}
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
-				log.Println(err.Error())
+				errorPrint("Failed to parse form: %s",err.Error())
 				return
 			}
 			req.Password = r.FormValue("password")
 			req.Username = r.FormValue("username")
 		}
 		ticket := AuthTicketResponsePayload{
-			CSRFPreventionToken: "35h235h23yh23",
+			CSRFPreventionToken: "35h235h23yh23",//Not used at all being that used only for API
 			Ticket:              RandStringBytes(64),
 			Username:            req.Username,
 		}
