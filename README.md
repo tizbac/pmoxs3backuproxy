@@ -1,7 +1,17 @@
 WIP!! 
 Use as follows
+Usage of ./pmoxs3backuproxy:
+  -bind string
+        PBS Protocol bind address, recommended 127.0.0.1:8007, use :8007 for all (default "127.0.0.1:8007")
+  -cert string
+        Server SSL certificate file (default "server.crt")
+  -debug
+        Debug logging
+  -endpoint string
+        S3 Endpoint without https/http , host:port
+  -key string
+        Server SSL key file (default "server.key")
 
-./pmoxs3backuproxy s3endpoint 
 
 The on PVE add proxmox backup server storage 
 
