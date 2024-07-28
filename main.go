@@ -223,11 +223,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	C := TicketEntry{}
 	if len(matches) >= 2 {
-
 		C, auth = s.Auth[matches[1]]
 	}
 
 	path := strings.Split(r.RequestURI, "/")
+
+	if strings.HasPrefix(r.RequestURI, "/dynamic") && s.H2Ticket != nil && r.Method == "POST" {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("not implemented"))
+		return
+	}
+
 	if len(path) >= 7 && strings.HasPrefix(r.RequestURI, "/api2/json/admin/datastore/") && auth {
 		ds := path[5]
 		action := path[6]
