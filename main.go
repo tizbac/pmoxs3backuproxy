@@ -144,7 +144,7 @@ func main() {
 	srv2.ListenAndServe()
 }
 
-func (s *Server) handleHTTP2(sock net.Conn, C TicketEntry, ds string, S Snapshot) {
+func (s *Server) handleHTTP2Backup(sock net.Conn, C TicketEntry, ds string, S Snapshot) {
 	srv := &http2.Server{}
 	//We serve the HTTP2 connection back using default handler after protocol upgrade
 	snew := &Server{Auth: make(map[string]TicketEntry), H2Ticket: &C, SelectedDataStore: &ds, Snapshot: &S, Writers: make(map[int32]*Writer), Finished: false}
@@ -168,6 +168,13 @@ func (s *Server) handleHTTP2(sock net.Conn, C TicketEntry, ds string, S Snapshot
 			log.Println("Failed to remove " + e.ObjectName + ", error: " + e.Err.Error())
 		}
 	}
+}
+
+func (s *Server) handleHTTP2Restore(sock net.Conn, C TicketEntry, ds string, S Snapshot) {
+	srv := &http2.Server{}
+	//We serve the HTTP2 connection back using default handler after protocol upgrade
+	snew := &Server{Auth: make(map[string]TicketEntry), H2Ticket: &C, SelectedDataStore: &ds, Snapshot: &S, Writers: make(map[int32]*Writer), Finished: false}
+	srv.ServeConn(sock, &http2.ServeConnOpts{Handler: snew})
 }
 
 func (s *Server) listSnapshots(c minio.Client, datastore string) ([]Snapshot, error) {
@@ -251,6 +258,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 	}
+	/*Backup HTTP2 Api*/
 	if strings.HasPrefix(r.RequestURI, "/finish") && s.H2Ticket != nil && r.Method == "POST" {
 
 		s.Finished = true
@@ -436,7 +444,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		wid, _ := strconv.ParseInt(r.URL.Query().Get("wid"), 10, 32)
 		s3name := fmt.Sprintf("chunks/%s/%s/%s", digest[0:2], digest[2:4], digest[4:])
 
-		_, err := s.H2Ticket.Client.GetObject(context.Background(), *s.SelectedDataStore, s3name, minio.GetObjectOptions{})
+		obj, err := s.H2Ticket.Client.GetObject(context.Background(), *s.SelectedDataStore, s3name, minio.GetObjectOptions{})
+		if err == nil {
+			_, err = obj.Stat()
+		}
 		if err != nil {
 			_, err := s.H2Ticket.Client.PutObject(context.Background(), *s.SelectedDataStore, s3name, r.Body, int64(esize), minio.PutObjectOptions{})
 			if err != nil {
@@ -461,6 +472,56 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 	}
+	/* End of HTTP2 Backup API */
+
+	/* HTTP2 Restore API */
+	if strings.HasPrefix(r.RequestURI, "/download?") && s.H2Ticket != nil {
+		blobname := r.URL.Query().Get("file-name")
+		obj, err := s.H2Ticket.Client.GetObject(context.Background(), *s.SelectedDataStore, s.Snapshot.S3Prefix()+"/"+blobname, minio.GetObjectOptions{})
+		if err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		st, err := obj.Stat()
+		if err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			log.Println(err.Error() + " " + s.Snapshot.S3Prefix() + "/" + blobname)
+			io.WriteString(w, err.Error())
+			return
+		}
+
+		w.Header().Add("Content-Length", fmt.Sprintf("%d", st.Size))
+		w.WriteHeader(http.StatusOK)
+
+		io.Copy(w, obj)
+
+	}
+
+	if strings.HasPrefix(r.RequestURI, "/chunk?") && s.H2Ticket != nil {
+		digest := r.URL.Query().Get("digest")
+		s3name := fmt.Sprintf("chunks/%s/%s/%s", digest[0:2], digest[2:4], digest[4:])
+		obj, err := s.H2Ticket.Client.GetObject(context.Background(), *s.SelectedDataStore, s3name, minio.GetObjectOptions{})
+		if err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		st, err := obj.Stat()
+		if err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			log.Println(err.Error() + " " + s3name)
+			io.WriteString(w, err.Error())
+			return
+		}
+
+		w.Header().Add("Content-Length", fmt.Sprintf("%d", st.Size))
+		w.WriteHeader(http.StatusOK)
+
+		io.Copy(w, obj)
+	}
+
+	/* End of HTTP 2 Restore API */
 
 	if r.RequestURI == "/api2/json/admin/datastore" && r.Method == "GET" && auth {
 		/*for name, values := range r.Header {
@@ -496,7 +557,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		conn, _, _ := hj.Hijack()
 		ss := Snapshot{}
 		ss.initWithQuery(r.URL.Query())
-		go s.handleHTTP2(conn, C, r.URL.Query().Get("store"), ss)
+		go s.handleHTTP2Backup(conn, C, r.URL.Query().Get("store"), ss)
+	}
+
+	if strings.HasPrefix(r.RequestURI, "//api2/json/reader") && auth {
+		w.Header().Add("Upgrade", "proxmox-backup-protocol-v1")
+		w.WriteHeader(http.StatusSwitchingProtocols)
+		hj, _ := w.(http.Hijacker)
+		conn, _, _ := hj.Hijack()
+		ss := Snapshot{}
+		ss.initWithQuery(r.URL.Query())
+		go s.handleHTTP2Restore(conn, C, r.URL.Query().Get("store"), ss)
 	}
 
 	if (r.RequestURI == "//api2/json/access/ticket" || r.RequestURI == "/api2/json/access/ticket") && r.Method == "POST" {
