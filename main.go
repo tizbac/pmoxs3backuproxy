@@ -135,6 +135,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		C, auth = s.Auth[matches[1]]
 	}
 
+	debugPrint("Request:" + r.RequestURI)
 	path := strings.Split(r.RequestURI, "/")
 
 	if strings.HasPrefix(r.RequestURI, "/dynamic") && s.H2Ticket != nil && r.Method == "POST" {

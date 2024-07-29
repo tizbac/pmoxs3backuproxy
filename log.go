@@ -8,7 +8,7 @@ var Gdebug = false
 
 func debugPrint(fmt string, args ...interface{}) {
 	if Gdebug {
-		log.Printf("[\033[34;1mDEBG\033[0m]", args...)
+		log.Printf("[\033[34;1mDEBG\033[0m]"+fmt, args...)
 	}
 }
 
