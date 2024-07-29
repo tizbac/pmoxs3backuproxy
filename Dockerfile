@@ -16,10 +16,8 @@ LABEL container.description="Proxy written in golang that will emulate a PBS ser
 LABEL container.source=$source
 LABEL container.version="1.1"
 LABEL maintainer="Michael Ablassmeier <abi@grinser.de>"
-
 COPY . /tmp/build/
 
-# Deploys dependencies and pulls sources, installing virtnbdbackup and removing unnecessary content:
 RUN \
 export PATH=$PATH:/usr/local/go/bin && \
 apt-get update && \
