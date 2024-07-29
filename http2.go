@@ -4,7 +4,6 @@ import (
 	"context"
 	"github.com/minio/minio-go/v7"
 	"golang.org/x/net/http2"
-	"log"
 	"net"
 )
 
@@ -22,7 +21,7 @@ func (s *Server) backup(sock net.Conn, C TicketEntry, ds string, S Snapshot) {
 			opts := minio.ListObjectsOptions{Prefix: S.S3Prefix(), Recursive: true}
 			for object := range C.Client.ListObjects(context.Background(), ds, opts) {
 				if object.Err != nil {
-					log.Fatalln(object.Err)
+					errorPrint(object.Err.Error())
 				}
 				objectsCh <- object
 			}
