@@ -68,7 +68,7 @@ type Snapshot struct {
 	BackupID   string   `json:"backup-id"`
 	BackupTime uint64   `json:"backup-time"`
 	BackupType string   `json:"backup-type"` // vm , ct, host
-	Files      []string `jons:"files"`
+	Files      []string `json:"files"`
 	Protected  bool     `json:"protected"`
 }
 
