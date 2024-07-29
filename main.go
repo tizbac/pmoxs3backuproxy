@@ -202,7 +202,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		for _, f := range mostRecent.Files {
 			if f == r.URL.Query().Get("archive-name") {
-				obj, err := s.H2Ticket.Client.GetObject(context.Background(), *s.SelectedDataStore, mostRecent.S3Prefix()+"/"+f, minio.GetObjectOptions{})
+				obj, err := s.H2Ticket.Client.GetObject(
+					context.Background(),
+					*s.SelectedDataStore,
+					mostRecent.S3Prefix()+"/"+f,
+					minio.GetObjectOptions{},
+				)
 				if err != nil {
 					w.WriteHeader(http.StatusNotFound)
 					log.Println(err.Error() + " " + mostRecent.S3Prefix() + "/" + f)
@@ -252,7 +257,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		//FIDX format is documented on Proxmox Backup docs pdf
 		if s.Writers[int32(wid)].ReuseCSUM != "" {
 			//In that case we load from S3 the specified reuse index
-			obj, err := s.H2Ticket.Client.GetObject(context.Background(), *s.SelectedDataStore, "indexed/"+s.Writers[int32(wid)].ReuseCSUM+".fidx", minio.GetObjectOptions{})
+			obj, err := s.H2Ticket.Client.GetObject(
+				context.Background(),
+				*s.SelectedDataStore,
+				"indexed/"+s.Writers[int32(wid)].ReuseCSUM+".fidx",
+				minio.GetObjectOptions{},
+			)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				w.Write([]byte(err.Error()))
@@ -307,7 +317,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			k++
 		}
 		R := bytes.NewReader(outFile)
-		_, err := s.H2Ticket.Client.PutObject(context.Background(), *s.SelectedDataStore, s.Snapshot.S3Prefix()+"/"+s.Writers[int32(wid)].FidxName, R, int64(len(outFile)), minio.PutObjectOptions{UserMetadata: map[string]string{"csum": r.URL.Query().Get("csum")}})
+		_, err := s.H2Ticket.Client.PutObject(
+			context.Background(),
+			*s.SelectedDataStore,
+			s.Snapshot.S3Prefix()+"/"+s.Writers[int32(wid)].FidxName,
+			R,
+			int64(len(outFile)),
+			minio.PutObjectOptions{
+				UserMetadata: map[string]string{"csum": r.URL.Query().Get("csum")},
+			},
+		)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))
@@ -316,7 +335,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		//This copy of the object is later used to lookup when reuse-csum is in play ( incremental backup )
 		//It will waste a bit of space, but indexes overall are much smaller than actual data , so for now is a price that can be paid to avoid going thru all the files
-		_, err = s.H2Ticket.Client.CopyObject(context.Background(), minio.CopyDestOptions{Bucket: *s.SelectedDataStore, Object: "indexed/" + r.URL.Query().Get("csum") + ".fidx"}, minio.CopySrcOptions{Bucket: *s.SelectedDataStore, Object: s.Snapshot.S3Prefix() + "/" + s.Writers[int32(wid)].FidxName})
+		_, err = s.H2Ticket.Client.CopyObject(
+			context.Background(),
+			minio.CopyDestOptions{Bucket: *s.SelectedDataStore, Object: "indexed/" + r.URL.Query().Get("csum") + ".fidx"},
+			minio.CopySrcOptions{Bucket: *s.SelectedDataStore, Object: s.Snapshot.S3Prefix() + "/" + s.Writers[int32(wid)].FidxName},
+		)
 		/*_, err = s.H2Ticket.Client.PutObject(context.Background(), *s.SelectedDataStore, "indexed/"+r.URL.Query().Get("csum"), R, int64(len(outFile)), minio.PutObjectOptions{UserMetadata: map[string]string{"csum": r.URL.Query().Get("csum")}})
 		 */
 		if err != nil {
@@ -373,12 +396,25 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		wid, _ := strconv.ParseInt(r.URL.Query().Get("wid"), 10, 32)
 		s3name := fmt.Sprintf("chunks/%s/%s/%s", digest[0:2], digest[2:4], digest[4:])
 
-		obj, err := s.H2Ticket.Client.GetObject(context.Background(), *s.SelectedDataStore, s3name, minio.GetObjectOptions{})
+		obj, err := s.H2Ticket.Client.GetObject(
+			context.Background(),
+			*s.SelectedDataStore,
+			s3name,
+			minio.GetObjectOptions{},
+		)
+
 		if err == nil {
 			_, err = obj.Stat()
 		}
 		if err != nil {
-			_, err := s.H2Ticket.Client.PutObject(context.Background(), *s.SelectedDataStore, s3name, r.Body, int64(esize), minio.PutObjectOptions{})
+			_, err := s.H2Ticket.Client.PutObject(
+				context.Background(),
+				*s.SelectedDataStore,
+				s3name,
+				r.Body,
+				int64(esize),
+				minio.PutObjectOptions{},
+			)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				w.Write([]byte(err.Error()))
@@ -395,7 +431,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.RequestURI, "/blob?") && s.H2Ticket != nil {
 		blobname := r.URL.Query().Get("file-name")
 		esize, _ := strconv.Atoi(r.URL.Query().Get("encoded-size"))
-		_, err := s.H2Ticket.Client.PutObject(context.Background(), *s.SelectedDataStore, s.Snapshot.S3Prefix()+"/"+blobname, r.Body, int64(esize), minio.PutObjectOptions{})
+		_, err := s.H2Ticket.Client.PutObject(
+			context.Background(),
+			*s.SelectedDataStore,
+			s.Snapshot.S3Prefix()+"/"+blobname, r.Body, int64(esize), minio.PutObjectOptions{},
+		)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))
@@ -408,7 +448,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	/* HTTP2 Restore API */
 	if strings.HasPrefix(r.RequestURI, "/download?") && s.H2Ticket != nil {
 		blobname := r.URL.Query().Get("file-name")
-		obj, err := s.H2Ticket.Client.GetObject(context.Background(), *s.SelectedDataStore, s.Snapshot.S3Prefix()+"/"+blobname, minio.GetObjectOptions{})
+		obj, err := s.H2Ticket.Client.GetObject(
+			context.Background(),
+			*s.SelectedDataStore,
+			s.Snapshot.S3Prefix()+"/"+blobname,
+			minio.GetObjectOptions{},
+		)
 		if err != nil {
 			w.WriteHeader(http.StatusNotFound)
 			w.Write([]byte(err.Error()))
@@ -432,7 +477,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.RequestURI, "/chunk?") && s.H2Ticket != nil {
 		digest := r.URL.Query().Get("digest")
 		s3name := fmt.Sprintf("chunks/%s/%s/%s", digest[0:2], digest[2:4], digest[4:])
-		obj, err := s.H2Ticket.Client.GetObject(context.Background(), *s.SelectedDataStore, s3name, minio.GetObjectOptions{})
+		obj, err := s.H2Ticket.Client.GetObject(
+			context.Background(),
+			*s.SelectedDataStore,
+			s3name,
+			minio.GetObjectOptions{},
+		)
 		if err != nil {
 			w.WriteHeader(http.StatusNotFound)
 			w.Write([]byte(err.Error()))
