@@ -28,7 +28,6 @@ import (
 	"io"
 	"log"
 	"math/rand"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -41,7 +40,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
-	"golang.org/x/net/http2"
 )
 
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -52,74 +50,6 @@ func RandStringBytes(n int) string {
 		b[i] = letterBytes[rand.Intn(len(letterBytes))]
 	}
 	return string(b)
-}
-
-type AuthTicketResponsePayload struct {
-	CSRFPreventionToken string `json:"CSRFPreventionToken"`
-	Ticket              string `json:"ticket"`
-	Username            string `json:"username"`
-}
-
-type AccessTicketRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-type DataStore struct {
-	Store string `json:"store"`
-}
-
-type TicketEntry struct {
-	AccessKeyID     string
-	SecretAccessKey string
-	Endpoint        string
-	Client          *minio.Client
-}
-
-type Writer struct {
-	FidxName    string
-	Assignments map[int64][]byte
-	Chunksize   uint64
-	Size        uint64
-	ReuseCSUM   string
-}
-
-type Server struct {
-	Auth              map[string]TicketEntry
-	H2Ticket          *TicketEntry
-	SelectedDataStore *string
-	Snapshot          *Snapshot
-	Writers           map[int32]*Writer
-	CurWriter         int32
-	Finished          bool
-	S3Endpoint		  string 
-}
-
-type DataStoreStatus struct {
-	Avail int64 `json:"avail"`
-	Total int64 `json:"total"`
-	Used  int64 `json:"used"`
-}
-
-type AssignmentRequest struct {
-	DigestList []string `json:"digest-list"`
-	OffsetList []uint64 `json:"offset-list"`
-	Wid        int32    `json:"wid"`
-}
-
-type FixedIndexCloseRequest struct {
-	ChunkCount int64  `json:"chunk-count"`
-	CSum       string `json:"csum"`
-	Wid        int32  `json:"wid"`
-	Size       int64  `json:"size"`
-}
-
-type Snapshot struct {
-	BackupID   string   `json:"backup-id"`
-	BackupTime uint64   `json:"backup-time"`
-	BackupType string   `json:"backup-type"` // vm , ct, host
-	Files      []string `jons:"files"`
-	Protected  bool     `json:"protected"`
 }
 
 func (S *Snapshot) initWithQuery(v url.Values) {
@@ -133,30 +63,6 @@ func (S *Snapshot) S3Prefix() string {
 	return fmt.Sprintf("backups/%s|%d|%s", S.BackupID, S.BackupTime, S.BackupType)
 }
 
-type Response struct {
-	Data interface{} `json:"data"`
-	// other fields
-}
-
-var Gdebug = false 
-
-func debugPrint(fmt string,args ...interface{}) {
-	if Gdebug {
-		log.Printf("[\033[34;1mDEBG\033[0m]", args...)
-	}
-}
-
-func infoPrint(fmt string, args...interface{}) {
-	log.Printf("[\033[37;1mINFO\033[0m]"+fmt, args...)
-}
-
-func errorPrint(fmt string, args...interface{}) {
-	log.Printf("[\033[31;1mERR \033[0m]"+fmt, args...)
-}
-
-func warnPrint(fmt string, args...interface{}) {
-	log.Printf("[\033[33;1mWARN\033[0m]"+fmt, args...)
-}
 func main() {
 	certFlag := flag.String("cert", "server.crt", "Server SSL certificate file")
 	keyFlag := flag.String("key", "server.key", "Server SSL key file")
@@ -170,46 +76,13 @@ func main() {
 		os.Exit(1)
 	}
 	Gdebug = *debug
-	srv := &http.Server{Addr: *bindAddress, Handler: &Server{Auth: make(map[string]TicketEntry), S3Endpoint : *endpointFlag}}
+	srv := &http.Server{Addr: *bindAddress, Handler: &Server{Auth: make(map[string]TicketEntry), S3Endpoint: *endpointFlag}}
 	srv.SetKeepAlivesEnabled(true)
-	infoPrint("Starting PBS api server on %s , upstream: %s", *bindAddress,*endpointFlag)
+	infoPrint("Starting PBS api server on %s , upstream: %s", *bindAddress, *endpointFlag)
 	err := srv.ListenAndServeTLS(*certFlag, *keyFlag)
 	if err != nil {
 		panic(err)
 	}
-}
-
-func (s *Server) handleHTTP2Backup(sock net.Conn, C TicketEntry, ds string, S Snapshot) {
-	srv := &http2.Server{}
-	//We serve the HTTP2 connection back using default handler after protocol upgrade
-	snew := &Server{Auth: make(map[string]TicketEntry), H2Ticket: &C, SelectedDataStore: &ds, Snapshot: &S, Writers: make(map[int32]*Writer), Finished: false}
-	srv.ServeConn(sock, &http2.ServeConnOpts{Handler: snew})
-	if !snew.Finished { //Incomplete backup because connection died pve side, remove from S3
-		warnPrint("Removing incomplete backup %s", snew.Snapshot.S3Prefix())
-		objectsCh := make(chan minio.ObjectInfo)
-		go func() {
-			defer close(objectsCh)
-			// List all objects from a bucket-name with a matching prefix.
-			opts := minio.ListObjectsOptions{Prefix: S.S3Prefix(), Recursive: true}
-			for object := range C.Client.ListObjects(context.Background(), ds, opts) {
-				if object.Err != nil {
-					log.Fatalln(object.Err)
-				}
-				objectsCh <- object
-			}
-		}()
-		errorCh := C.Client.RemoveObjects(context.Background(), ds, objectsCh, minio.RemoveObjectsOptions{})
-		for e := range errorCh {
-			errorPrint("Failed to remove " + e.ObjectName + ", error: " + e.Err.Error())
-		}
-	}
-}
-
-func (s *Server) handleHTTP2Restore(sock net.Conn, C TicketEntry, ds string, S Snapshot) {
-	srv := &http2.Server{}
-	//We serve the HTTP2 connection back using default handler after protocol upgrade
-	snew := &Server{Auth: make(map[string]TicketEntry), H2Ticket: &C, SelectedDataStore: &ds, Snapshot: &S, Writers: make(map[int32]*Writer), Finished: false}
-	srv.ServeConn(sock, &http2.ServeConnOpts{Handler: snew})
 }
 
 func (s *Server) listSnapshots(c minio.Client, datastore string) ([]Snapshot, error) {
@@ -218,7 +91,7 @@ func (s *Server) listSnapshots(c minio.Client, datastore string) ([]Snapshot, er
 	ctx := context.Background()
 	for object := range c.ListObjects(ctx, datastore, minio.ListObjectsOptions{Recursive: true, Prefix: "backups/"}) {
 		//log.Println(object.Key)
-		//The object name is backupid|unixtimestamp|type 
+		//The object name is backupid|unixtimestamp|type
 		if strings.Count(object.Key, "/") == 2 {
 			path := strings.Split(object.Key, "/")
 			fields := strings.Split(path[1], "|")
@@ -329,7 +202,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		for _, f := range mostRecent.Files {
 			if f == r.URL.Query().Get("archive-name") {
-				obj, err := s.H2Ticket.Client.GetObject(context.Background(), *s.SelectedDataStore, mostRecent.S3Prefix()+"/"+f, minio.GetObjectOptions{})
+				obj, err := s.H2Ticket.Client.GetObject(
+					context.Background(),
+					*s.SelectedDataStore,
+					mostRecent.S3Prefix()+"/"+f,
+					minio.GetObjectOptions{},
+				)
 				if err != nil {
 					w.WriteHeader(http.StatusNotFound)
 					log.Println(err.Error() + " " + mostRecent.S3Prefix() + "/" + f)
@@ -379,7 +257,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		//FIDX format is documented on Proxmox Backup docs pdf
 		if s.Writers[int32(wid)].ReuseCSUM != "" {
 			//In that case we load from S3 the specified reuse index
-			obj, err := s.H2Ticket.Client.GetObject(context.Background(), *s.SelectedDataStore, "indexed/"+s.Writers[int32(wid)].ReuseCSUM+".fidx", minio.GetObjectOptions{})
+			obj, err := s.H2Ticket.Client.GetObject(
+				context.Background(),
+				*s.SelectedDataStore,
+				"indexed/"+s.Writers[int32(wid)].ReuseCSUM+".fidx",
+				minio.GetObjectOptions{},
+			)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				w.Write([]byte(err.Error()))
@@ -396,13 +279,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			//Chunk size and size cannot be known since incremental may potentially upload 0 chunks, so we take them from reused index
 			s.Writers[int32(wid)].Size = binary.LittleEndian.Uint64(outFile[64:72])
 			s.Writers[int32(wid)].Chunksize = binary.NativeEndian.Uint64(outFile[72:80])
-			
+
 			debugPrint("Reusing old index")
 		} else {
 			//In that case a new index is allocated, 4096 is the header, then size/chunksize blocks follow of 32 bytes ( chunk digest sha 256 )
 			outFile = make([]byte, 4096+32*len(s.Writers[int32(wid)].Assignments))
 			outFile[0], outFile[1], outFile[2], outFile[3], outFile[4], outFile[5], outFile[6], outFile[7] = 47, 127, 65, 237, 145, 253, 15, 205 //Header magic as per PBS docs
-			//Chunksize in that case is derived from at least one chunk having been uploaded 
+			//Chunksize in that case is derived from at least one chunk having been uploaded
 			sl := binary.LittleEndian.AppendUint64(make([]byte, 0), s.Writers[int32(wid)].Size)
 			copy(outFile[64:72], sl)
 			sl = binary.LittleEndian.AppendUint64(make([]byte, 0), s.Writers[int32(wid)].Chunksize)
@@ -410,7 +293,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		}
 		copy(outFile[32:64], csumindex[0:32]) //Checksum is almost never the same , so it is changed with new backup
-		u := uuid.New() //Generate a new uuid too
+		u := uuid.New()                       //Generate a new uuid too
 		b, _ := u.MarshalBinary()
 		copy(outFile[8:24], b)
 		sl := binary.LittleEndian.AppendUint64(make([]byte, 0), uint64(time.Now().Unix()))
@@ -434,7 +317,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			k++
 		}
 		R := bytes.NewReader(outFile)
-		_, err := s.H2Ticket.Client.PutObject(context.Background(), *s.SelectedDataStore, s.Snapshot.S3Prefix()+"/"+s.Writers[int32(wid)].FidxName, R, int64(len(outFile)), minio.PutObjectOptions{UserMetadata: map[string]string{"csum": r.URL.Query().Get("csum")}})
+		_, err := s.H2Ticket.Client.PutObject(
+			context.Background(),
+			*s.SelectedDataStore,
+			s.Snapshot.S3Prefix()+"/"+s.Writers[int32(wid)].FidxName,
+			R,
+			int64(len(outFile)),
+			minio.PutObjectOptions{
+				UserMetadata: map[string]string{"csum": r.URL.Query().Get("csum")},
+			},
+		)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))
@@ -443,7 +335,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		//This copy of the object is later used to lookup when reuse-csum is in play ( incremental backup )
 		//It will waste a bit of space, but indexes overall are much smaller than actual data , so for now is a price that can be paid to avoid going thru all the files
-		_, err = s.H2Ticket.Client.CopyObject(context.Background(), minio.CopyDestOptions{Bucket: *s.SelectedDataStore, Object: "indexed/" + r.URL.Query().Get("csum") + ".fidx"}, minio.CopySrcOptions{Bucket: *s.SelectedDataStore, Object: s.Snapshot.S3Prefix() + "/" + s.Writers[int32(wid)].FidxName})
+		_, err = s.H2Ticket.Client.CopyObject(
+			context.Background(),
+			minio.CopyDestOptions{Bucket: *s.SelectedDataStore, Object: "indexed/" + r.URL.Query().Get("csum") + ".fidx"},
+			minio.CopySrcOptions{Bucket: *s.SelectedDataStore, Object: s.Snapshot.S3Prefix() + "/" + s.Writers[int32(wid)].FidxName},
+		)
 		/*_, err = s.H2Ticket.Client.PutObject(context.Background(), *s.SelectedDataStore, "indexed/"+r.URL.Query().Get("csum"), R, int64(len(outFile)), minio.PutObjectOptions{UserMetadata: map[string]string{"csum": r.URL.Query().Get("csum")}})
 		 */
 		if err != nil {
@@ -500,12 +396,25 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		wid, _ := strconv.ParseInt(r.URL.Query().Get("wid"), 10, 32)
 		s3name := fmt.Sprintf("chunks/%s/%s/%s", digest[0:2], digest[2:4], digest[4:])
 
-		obj, err := s.H2Ticket.Client.GetObject(context.Background(), *s.SelectedDataStore, s3name, minio.GetObjectOptions{})
+		obj, err := s.H2Ticket.Client.GetObject(
+			context.Background(),
+			*s.SelectedDataStore,
+			s3name,
+			minio.GetObjectOptions{},
+		)
+
 		if err == nil {
 			_, err = obj.Stat()
 		}
 		if err != nil {
-			_, err := s.H2Ticket.Client.PutObject(context.Background(), *s.SelectedDataStore, s3name, r.Body, int64(esize), minio.PutObjectOptions{})
+			_, err := s.H2Ticket.Client.PutObject(
+				context.Background(),
+				*s.SelectedDataStore,
+				s3name,
+				r.Body,
+				int64(esize),
+				minio.PutObjectOptions{},
+			)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				w.Write([]byte(err.Error()))
@@ -522,7 +431,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.RequestURI, "/blob?") && s.H2Ticket != nil {
 		blobname := r.URL.Query().Get("file-name")
 		esize, _ := strconv.Atoi(r.URL.Query().Get("encoded-size"))
-		_, err := s.H2Ticket.Client.PutObject(context.Background(), *s.SelectedDataStore, s.Snapshot.S3Prefix()+"/"+blobname, r.Body, int64(esize), minio.PutObjectOptions{})
+		_, err := s.H2Ticket.Client.PutObject(
+			context.Background(),
+			*s.SelectedDataStore,
+			s.Snapshot.S3Prefix()+"/"+blobname, r.Body, int64(esize), minio.PutObjectOptions{},
+		)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))
@@ -535,7 +448,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	/* HTTP2 Restore API */
 	if strings.HasPrefix(r.RequestURI, "/download?") && s.H2Ticket != nil {
 		blobname := r.URL.Query().Get("file-name")
-		obj, err := s.H2Ticket.Client.GetObject(context.Background(), *s.SelectedDataStore, s.Snapshot.S3Prefix()+"/"+blobname, minio.GetObjectOptions{})
+		obj, err := s.H2Ticket.Client.GetObject(
+			context.Background(),
+			*s.SelectedDataStore,
+			s.Snapshot.S3Prefix()+"/"+blobname,
+			minio.GetObjectOptions{},
+		)
 		if err != nil {
 			w.WriteHeader(http.StatusNotFound)
 			w.Write([]byte(err.Error()))
@@ -559,7 +477,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.RequestURI, "/chunk?") && s.H2Ticket != nil {
 		digest := r.URL.Query().Get("digest")
 		s3name := fmt.Sprintf("chunks/%s/%s/%s", digest[0:2], digest[2:4], digest[4:])
-		obj, err := s.H2Ticket.Client.GetObject(context.Background(), *s.SelectedDataStore, s3name, minio.GetObjectOptions{})
+		obj, err := s.H2Ticket.Client.GetObject(
+			context.Background(),
+			*s.SelectedDataStore,
+			s3name,
+			minio.GetObjectOptions{},
+		)
 		if err != nil {
 			w.WriteHeader(http.StatusNotFound)
 			w.Write([]byte(err.Error()))
@@ -614,20 +537,20 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Add("Upgrade", "proxmox-backup-protocol-v1")
 		w.WriteHeader(http.StatusSwitchingProtocols)
 		hj, _ := w.(http.Hijacker)
-		conn, _, _ := hj.Hijack()//Here SSL/TCP connection is deowned from the HTTP1.1 server and passed to HTTP2 handler after sending headers telling the client that we are switching protocols
+		conn, _, _ := hj.Hijack() //Here SSL/TCP connection is deowned from the HTTP1.1 server and passed to HTTP2 handler after sending headers telling the client that we are switching protocols
 		ss := Snapshot{}
 		ss.initWithQuery(r.URL.Query())
-		go s.handleHTTP2Backup(conn, C, r.URL.Query().Get("store"), ss)
+		go s.backup(conn, C, r.URL.Query().Get("store"), ss)
 	}
 
 	if strings.HasPrefix(r.RequestURI, "//api2/json/reader") && auth {
 		w.Header().Add("Upgrade", "proxmox-backup-protocol-v1")
 		w.WriteHeader(http.StatusSwitchingProtocols)
 		hj, _ := w.(http.Hijacker)
-		conn, _, _ := hj.Hijack()//Here SSL/TCP connection is deowned from the HTTP1.1 server and passed to HTTP2 handler after sending headers telling the client that we are switching protocols
+		conn, _, _ := hj.Hijack() //Here SSL/TCP connection is deowned from the HTTP1.1 server and passed to HTTP2 handler after sending headers telling the client that we are switching protocols
 		ss := Snapshot{}
 		ss.initWithQuery(r.URL.Query())
-		go s.handleHTTP2Restore(conn, C, r.URL.Query().Get("store"), ss)
+		go s.restore(conn, C, r.URL.Query().Get("store"), ss)
 	}
 
 	if (r.RequestURI == "//api2/json/access/ticket" || r.RequestURI == "/api2/json/access/ticket") && r.Method == "POST" {
@@ -645,19 +568,19 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			for name, values := range r.Header {
 				// Loop over all values for the name.
 				for _, value := range values {
-					debugPrint("%s=%s",name, value)
+					debugPrint("%s=%s", name, value)
 				}
 			}
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
-				errorPrint("Failed to parse form: %s",err.Error())
+				errorPrint("Failed to parse form: %s", err.Error())
 				return
 			}
 			req.Password = r.FormValue("password")
 			req.Username = r.FormValue("username")
 		}
 		ticket := AuthTicketResponsePayload{
-			CSRFPreventionToken: "35h235h23yh23",//Not used at all being that used only for API
+			CSRFPreventionToken: "35h235h23yh23", //Not used at all being that used only for API
 			Ticket:              RandStringBytes(64),
 			Username:            req.Username,
 		}
@@ -690,7 +613,5 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		//w.Header().Add("Connection", "Close")
 		w.WriteHeader(http.StatusOK)
 		w.Write(respbody)
-
 	}
-
 }
