@@ -26,7 +26,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -179,12 +178,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.Finished = true
 	}
 	if strings.HasPrefix(r.RequestURI, "/previous?") && s.H2Ticket != nil && r.Method == "GET" {
-		log.Printf("Handling get request for previous (%s)", r.URL.Query().Get("archive-name"))
+		infoPrint("Handling get request for previous (%s)", r.URL.Query().Get("archive-name"))
 		snapshots, err := s.listSnapshots(*s.H2Ticket.Client, *s.SelectedDataStore)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			io.WriteString(w, err.Error())
-			log.Println(err.Error())
+			errorPrint(err.Error())
 			return
 		}
 
@@ -210,14 +209,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				)
 				if err != nil {
 					w.WriteHeader(http.StatusNotFound)
-					log.Println(err.Error() + " " + mostRecent.S3Prefix() + "/" + f)
+					errorPrint(err.Error() + " " + mostRecent.S3Prefix() + "/" + f)
 					io.WriteString(w, err.Error())
 					return
 				}
 				s, err := obj.Stat()
 				if err != nil {
 					w.WriteHeader(http.StatusNotFound)
-					log.Println(err.Error() + " " + mostRecent.S3Prefix() + "/" + f)
+					errorPrint(err.Error() + " " + mostRecent.S3Prefix() + "/" + f)
 					io.WriteString(w, err.Error())
 					return
 				}
@@ -239,7 +238,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reusecsum := r.URL.Query().Get("reuse-csum")
 		size := r.URL.Query().Get("size")
 		S, _ := strconv.ParseUint(size, 10, 64)
-		fmt.Printf("Archive name : %s, size: %s\n", fidxname, size)
+		infoPrint("Archive name : %s, size: %s\n", fidxname, size)
 		wid := atomic.AddInt32(&s.CurWriter, 1)
 		resp, _ := json.Marshal(Response{
 			Data: wid,
@@ -462,7 +461,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		st, err := obj.Stat()
 		if err != nil {
 			w.WriteHeader(http.StatusNotFound)
-			log.Println(err.Error() + " " + s.Snapshot.S3Prefix() + "/" + blobname)
+			errorPrint(err.Error() + " " + s.Snapshot.S3Prefix() + "/" + blobname)
 			io.WriteString(w, err.Error())
 			return
 		}
@@ -492,7 +491,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		st, err := obj.Stat()
 		if err != nil {
 			w.WriteHeader(http.StatusNotFound)
-			log.Println(err.Error() + " " + s3name)
+			errorPrint(err.Error() + " " + s3name)
 			io.WriteString(w, err.Error())
 			errorPrint("%s: Critical: Missing chunk on S3 bucket: %s", digest, err.Error())
 			return
@@ -559,7 +558,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
-				log.Println(err.Error())
+				errorPrint(err.Error())
 				return
 			}
 			json.Unmarshal(body, &req)
@@ -597,7 +596,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 		if err != nil {
 			//w.Header().Add("Connection", "Close")
-			log.Println(err.Error())
+			errorPrint(err.Error())
 			warnPrint("Failed S3 Connection: %s", err.Error())
 			w.WriteHeader(http.StatusForbidden)
 			w.Write([]byte(err.Error()))
