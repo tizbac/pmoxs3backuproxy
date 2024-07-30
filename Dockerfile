@@ -21,6 +21,7 @@ RUN cp server.key /tmp/
 RUN cp server.crt /tmp/
 
 FROM gcr.io/distroless/static-debian12
+EXPOSE 8007
 COPY --from=build /go/bin/pmoxs3backuproxy /usr/bin/
 COPY --from=build /tmp/server.key /
 COPY --from=build /tmp/server.crt /
