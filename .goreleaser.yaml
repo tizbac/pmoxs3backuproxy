@@ -1,0 +1,29 @@
+builds:
+  -
+    main: .
+    binary: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}"
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    no_unique_dist_dir: true
+
+archives:
+  -
+    id: tar
+    format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_SHA256SUMS"
+  algorithm: sha256
+
+gomod:
+  proxy: false
+
+release:
+  draft: false
