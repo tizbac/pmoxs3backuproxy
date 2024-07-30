@@ -8,25 +8,22 @@
 #  docker run -it  pmoxs3backuproxy:latest pmoxs3backuproxy -endpoint 127.0.0.1:9000
 #
 # Note: uses default server key and certificate stored in /root/
-FROM debian:bookworm-slim
+FROM golang:1.22.5 as build
 ARG source="https://github.com/tizbac/pmoxs3backuproxy"
-ARG goversion="https://go.dev/dl/go1.22.5.linux-amd64.tar.gz"
 LABEL container.name="pmoxs3backuproxy"
 LABEL container.description="Proxy written in golang that will emulate a PBS server and work on one or more S3 buckets"
 LABEL container.source=$source
-LABEL container.version="1.1"
-LABEL maintainer="Michael Ablassmeier <abi@grinser.de>"
-COPY . /tmp/build/
+LABEL container.version="0.1"
+COPY . .
+RUN go mod download
+RUN CGO_ENABLED=0 go build -o /go/bin/pmoxs3backuproxy
+RUN cp server.key /tmp/
+RUN cp server.crt /tmp/
 
-RUN \
-export PATH=$PATH:/usr/local/go/bin && \
-apt-get update && \
-apt-get install -y --no-install-recommends curl ca-certificates && \
-curl -sL $goversion | tar -C /usr/local -zxf - && \
-cd /tmp/build/ && go build . && cp pmoxs3backuproxy /usr/bin && \
-cp server.key server.crt /root/ && \
-rm -rf /var/lib/apt/lists/* /tmp/* /usr/local/go
+FROM gcr.io/distroless/static-debian12
+COPY --from=build /go/bin/pmoxs3backuproxy /usr/bin/
+COPY --from=build /tmp/server.key /
+COPY --from=build /tmp/server.crt /
 
 # Default folder:
-WORKDIR /root
-CMD pmoxs3backuproxy
+CMD ["/usr/bin/pmoxs3backuproxy"]
