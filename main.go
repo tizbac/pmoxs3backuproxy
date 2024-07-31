@@ -99,7 +99,11 @@ func (s *Server) listSnapshots(c minio.Client, datastore string) ([]Snapshot, er
 			if ok {
 				//log.Println(path)
 				if len(path) == 3 {
-					existing_S.Files = append(existing_S.Files, path[2])
+					existing_S.Files = append(existing_S.Files, SnapshotFile{
+						Filename:  path[2],
+						CryptMode: "none", //TODO
+						Size:      uint64(object.Size),
+					})
 				}
 				continue
 			}
@@ -111,10 +115,14 @@ func (s *Server) listSnapshots(c minio.Client, datastore string) ([]Snapshot, er
 				BackupID:   backupid,
 				BackupTime: backuptimei,
 				BackupType: backuptype,
-				Files:      make([]string, 0),
+				Files:      make([]SnapshotFile, 0),
 			}
 			if len(path) == 3 {
-				S.Files = append(S.Files, path[2])
+				S.Files = append(S.Files, SnapshotFile{
+					Filename:  path[2],
+					CryptMode: "none", //TODO
+					Size:      uint64(object.Size),
+				})
 			}
 
 			resparray = append(resparray, S)
@@ -190,9 +198,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var mostRecent *Snapshot
-		for _, s := range snapshots {
-			if mostRecent == nil || s.BackupTime > mostRecent.BackupTime {
-				mostRecent = &s
+		for _, sl := range snapshots {
+			if (mostRecent == nil || sl.BackupTime > mostRecent.BackupTime) && s.Snapshot.BackupID == sl.BackupID {
+				mostRecent = &sl
 			}
 		}
 
@@ -202,23 +210,23 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		for _, f := range mostRecent.Files {
-			if f == r.URL.Query().Get("archive-name") {
+			if f.Filename == r.URL.Query().Get("archive-name") {
 				obj, err := s.H2Ticket.Client.GetObject(
 					context.Background(),
 					*s.SelectedDataStore,
-					mostRecent.S3Prefix()+"/"+f,
+					mostRecent.S3Prefix()+"/"+f.Filename,
 					minio.GetObjectOptions{},
 				)
 				if err != nil {
 					w.WriteHeader(http.StatusNotFound)
-					errorPrint(err.Error() + " " + mostRecent.S3Prefix() + "/" + f)
+					errorPrint(err.Error() + " " + mostRecent.S3Prefix() + "/" + f.Filename)
 					io.WriteString(w, err.Error())
 					return
 				}
 				s, err := obj.Stat()
 				if err != nil {
 					w.WriteHeader(http.StatusNotFound)
-					errorPrint(err.Error() + " " + mostRecent.S3Prefix() + "/" + f)
+					errorPrint(err.Error() + " " + mostRecent.S3Prefix() + "/" + f.Filename)
 					io.WriteString(w, err.Error())
 					return
 				}
