@@ -79,3 +79,5 @@ bucket as datastore
 
 Does currently only work for pbs VM backups, not with proxmox-backup-client
 https://github.com/tizbac/pmoxs3backuproxy/issues/2 
+Does not currently support retention and garbage collection
+https://github.com/tizbac/pmoxs3backuproxy/issues/16 , suggestions on implementation welcome
