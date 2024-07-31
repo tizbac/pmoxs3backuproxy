@@ -517,6 +517,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		bckts, err := C.Client.ListBuckets(context.Background())
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
+			errorPrint("Failed to list buckets: %s", err.Error())
+			io.WriteString(w, err.Error())
 			return
 		}
 
