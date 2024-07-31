@@ -43,6 +43,7 @@ type Server struct {
 	CurWriter         int32
 	Finished          bool
 	S3Endpoint        string
+	SecureFlag        bool
 }
 
 type DataStoreStatus struct {

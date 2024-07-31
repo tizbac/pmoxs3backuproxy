@@ -67,6 +67,7 @@ func main() {
 	keyFlag := flag.String("key", "server.key", "Server SSL key file")
 	endpointFlag := flag.String("endpoint", "", "S3 Endpoint without https/http , host:port")
 	bindAddress := flag.String("bind", "127.0.0.1:8007", "PBS Protocol bind address, recommended 127.0.0.1:8007, use :8007 for all")
+	insecureFlag := flag.Bool("usessl", false, "Use SSL for endpoint connection: default: false")
 
 	debug := flag.Bool("debug", false, "Debug logging")
 	flag.Parse()
@@ -75,9 +76,9 @@ func main() {
 		os.Exit(1)
 	}
 	Gdebug = *debug
-	srv := &http.Server{Addr: *bindAddress, Handler: &Server{Auth: make(map[string]TicketEntry), S3Endpoint: *endpointFlag}}
+	srv := &http.Server{Addr: *bindAddress, Handler: &Server{Auth: make(map[string]TicketEntry), S3Endpoint: *endpointFlag, SecureFlag: *insecureFlag}}
 	srv.SetKeepAlivesEnabled(true)
-	infoPrint("Starting PBS api server on %s , upstream: %s", *bindAddress, *endpointFlag)
+	infoPrint("Starting PBS api server on [%s], upstream: [%s] ssl: [%t]", *bindAddress, *endpointFlag, *insecureFlag)
 	err := srv.ListenAndServeTLS(*certFlag, *keyFlag)
 	if err != nil {
 		panic(err)
@@ -595,7 +596,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		minioClient, err := minio.New(te.Endpoint, &minio.Options{
 			Creds:  credentials.NewStaticV4(te.AccessKeyID, te.SecretAccessKey, ""),
-			Secure: false,
+			Secure: s.SecureFlag,
 		})
 		if err != nil {
 			//w.Header().Add("Connection", "Close")
