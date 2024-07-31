@@ -159,7 +159,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Write(resp)
 		}
 
-		if action == "snapshots" {
+		if strings.HasPrefix(action, "snapshots") {
 			resparray, err := s.listSnapshots(*C.Client, ds)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
