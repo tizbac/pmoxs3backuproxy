@@ -608,8 +608,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 		if err != nil {
 			//w.Header().Add("Connection", "Close")
-			errorPrint(err.Error())
-			warnPrint("Failed S3 Connection: %s", err.Error())
+			errorPrint("Failed S3 Connection: %s", err.Error())
 			w.WriteHeader(http.StatusForbidden)
 			w.Write([]byte(err.Error()))
 		}
