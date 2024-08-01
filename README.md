@@ -27,6 +27,8 @@ Usage of ./pmoxs3backuproxy:
         S3 Endpoint without https/http , host:port
   -key string
         Server SSL key file (default "server.key")
+  -usessl
+        Enable SSL connection to the endpoint, for use with cloud S3 providers
 ```
 
 # Quickstart
@@ -74,6 +76,33 @@ please regenerate server certificate !!
 
 Use the created access_key@pbs for username, and secret key as password, and
 bucket as datastore
+
+# Running with Docker
+
+Add the following to your `docker-compose.yml`, add/update your `-endpoint`, then run `docker compose up -d`. The service will be accessible at `localhost:8007`.
+```
+name: pmoxs3backuproxy
+services:
+  pmoxs3backuproxy:
+    image: ghcr.io/tizbac/pmoxs3backuproxy:latest
+    command: -bind 127.0.0.1:8007 -endpoint 127.0.0.1:9000
+    container_name: pmoxs3backuproxy
+    hostname: pmoxs3backuproxy
+    restart: unless-stopped
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - '8007:8007'
+```
+
+For increased security, you can add the following security parameters without affecting container function:
+```
+    user: '65532:65532'
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+```
 
 # Notes
 
