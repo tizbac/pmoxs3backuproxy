@@ -24,6 +24,7 @@ type TicketEntry struct {
 	SecretAccessKey string
 	Endpoint        string
 	Client          *minio.Client
+	Expire			uint64
 }
 
 type Writer struct {
@@ -44,6 +45,7 @@ type Server struct {
 	Finished          bool
 	S3Endpoint        string
 	SecureFlag        bool
+	TicketExpire	  uint64
 }
 
 type DataStoreStatus struct {

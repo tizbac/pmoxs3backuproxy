@@ -68,7 +68,7 @@ func main() {
 	endpointFlag := flag.String("endpoint", "", "S3 Endpoint without https/http , host:port")
 	bindAddress := flag.String("bind", "127.0.0.1:8007", "PBS Protocol bind address, recommended 127.0.0.1:8007, use :8007 for all")
 	insecureFlag := flag.Bool("usessl", false, "Use SSL for endpoint connection: default: false")
-
+	ticketExpireFlag := flag.Uint64("ticketexpire", 3600, "API Ticket expire time in seconds")
 	debug := flag.Bool("debug", false, "Debug logging")
 	flag.Parse()
 	if *endpointFlag == "" {
@@ -76,12 +76,33 @@ func main() {
 		os.Exit(1)
 	}
 	Gdebug = *debug
-	srv := &http.Server{Addr: *bindAddress, Handler: &Server{Auth: make(map[string]TicketEntry), S3Endpoint: *endpointFlag, SecureFlag: *insecureFlag}}
+	S := &Server{Auth: make(map[string]TicketEntry), S3Endpoint: *endpointFlag, SecureFlag: *insecureFlag, TicketExpire: *ticketExpireFlag}
+	srv := &http.Server{Addr: *bindAddress, Handler: S}
 	srv.SetKeepAlivesEnabled(true)
+	go S.ticketGC()
 	infoPrint("Starting PBS api server on [%s], upstream: [%s] ssl: [%t]", *bindAddress, *endpointFlag, *insecureFlag)
+	
 	err := srv.ListenAndServeTLS(*certFlag, *keyFlag)
 	if err != nil {
 		panic(err)
+	}
+}
+
+func (s *Server)ticketGC() {
+	for {
+		expireKeys := make([]string, 0)
+		now := uint64(time.Now().Unix())
+		for k, v := range s.Auth {
+			if v.Expire < now {
+				expireKeys = append(expireKeys, k)
+			}
+		}
+		debugPrint("Expire %d tickets", len(expireKeys))
+		for _ , k := range expireKeys {
+			delete(s.Auth, k)
+			debugPrint("Expired ticket %s", k)
+		}
+		time.Sleep(30*time.Second)
 	}
 }
 
@@ -601,6 +622,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			AccessKeyID:     strings.Split(req.Username, "@")[0],
 			SecretAccessKey: req.Password,
 			Endpoint:        s.S3Endpoint,
+			Expire: uint64(time.Now().Unix())+s.TicketExpire,
 		}
 		minioClient, err := minio.New(te.Endpoint, &minio.Options{
 			Creds:  credentials.NewStaticV4(te.AccessKeyID, te.SecretAccessKey, ""),
