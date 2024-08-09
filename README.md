@@ -31,6 +31,27 @@ Usage of ./pmoxs3backuproxy:
         Enable SSL connection to the endpoint, for use with cloud S3 providers
 ```
 
+```
+Usage of ./garbagecollector:
+  -accesskey string
+        S3 Access Key ID
+  -bucket string
+        Bucket to perform garbage collection on
+  -debug
+        Debug logging
+  -endpoint string
+        S3 Endpoint without https/http , host:port
+  -retention uint
+        Number of days to keep backups for (default 60)
+  -secretkey string
+        S3 Secret Key, discouraged , use a file if possible
+  -secretkeyfile string
+        S3 Secret Key File
+  -usessl
+        Use SSL for endpoint connection: default: false
+
+```
+
 # Quickstart
 ### minio
 
@@ -105,6 +126,10 @@ For increased security, you can add the following security parameters without af
 ```
 
 # Notes
+
+Garbage collector process ( scheduled with crontab ) must absolutely run on same machine as the proxy for locking to work!!
+Garbage collector will also check for integrity ( only the presence of all referenced chunks ) , if a backup is found to be broken, it will not be deleted and retention will be honored, but it will be marked corrupted, so next backup from PVE will be non incremental and will recreate missing chunk if needed
+Also corrupted backup will not appear in PVE backup list
 
 Does currently only work for pbs VM backups, not with proxmox-backup-client
 https://github.com/tizbac/pmoxs3backuproxy/issues/2 
