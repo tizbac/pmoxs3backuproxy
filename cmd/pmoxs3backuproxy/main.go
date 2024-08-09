@@ -35,6 +35,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"tizbac/pmoxs3backuproxy/internal/s3backuplog"
 
 	"github.com/google/uuid"
 	"github.com/minio/minio-go/v7"
@@ -75,20 +76,22 @@ func main() {
 		flag.Usage()
 		os.Exit(1)
 	}
-	Gdebug = *debug
+	if *debug {
+		s3backuplog.EnableDebug()
+	}
 	S := &Server{Auth: make(map[string]TicketEntry), S3Endpoint: *endpointFlag, SecureFlag: *insecureFlag, TicketExpire: *ticketExpireFlag}
 	srv := &http.Server{Addr: *bindAddress, Handler: S}
 	srv.SetKeepAlivesEnabled(true)
 	go S.ticketGC()
-	infoPrint("Starting PBS api server on [%s], upstream: [%s] ssl: [%t]", *bindAddress, *endpointFlag, *insecureFlag)
-	
+	s3backuplog.InfoPrint("Starting PBS api server on [%s], upstream: [%s] ssl: [%t]", *bindAddress, *endpointFlag, *insecureFlag)
+
 	err := srv.ListenAndServeTLS(*certFlag, *keyFlag)
 	if err != nil {
 		panic(err)
 	}
 }
 
-func (s *Server)ticketGC() {
+func (s *Server) ticketGC() {
 	for {
 		expireKeys := make([]string, 0)
 		now := uint64(time.Now().Unix())
@@ -97,12 +100,12 @@ func (s *Server)ticketGC() {
 				expireKeys = append(expireKeys, k)
 			}
 		}
-		debugPrint("Expire %d tickets", len(expireKeys))
-		for _ , k := range expireKeys {
+		s3backuplog.DebugPrint("Expire %d tickets", len(expireKeys))
+		for _, k := range expireKeys {
 			delete(s.Auth, k)
-			debugPrint("Expired ticket %s", k)
+			s3backuplog.DebugPrint("Expired ticket %s", k)
 		}
-		time.Sleep(30*time.Second)
+		time.Sleep(30 * time.Second)
 	}
 }
 
@@ -164,7 +167,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		C, auth = s.Auth[matches[1]]
 	}
 
-	debugPrint("Request:" + r.RequestURI)
+	s3backuplog.DebugPrint("Request:" + r.RequestURI)
 	path := strings.Split(r.RequestURI, "/")
 
 	if strings.HasPrefix(r.RequestURI, "/dynamic") && s.H2Ticket != nil && r.Method == "POST" {
@@ -209,12 +212,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.Finished = true
 	}
 	if strings.HasPrefix(r.RequestURI, "/previous?") && s.H2Ticket != nil && r.Method == "GET" {
-		infoPrint("Handling get request for previous (%s)", r.URL.Query().Get("archive-name"))
+		s3backuplog.InfoPrint("Handling get request for previous (%s)", r.URL.Query().Get("archive-name"))
 		snapshots, err := s.listSnapshots(*s.H2Ticket.Client, *s.SelectedDataStore)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			io.WriteString(w, err.Error())
-			errorPrint(err.Error())
+			s3backuplog.ErrorPrint(err.Error())
 			return
 		}
 
@@ -240,14 +243,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				)
 				if err != nil {
 					w.WriteHeader(http.StatusNotFound)
-					errorPrint(err.Error() + " " + mostRecent.S3Prefix() + "/" + f.Filename)
+					s3backuplog.ErrorPrint(err.Error() + " " + mostRecent.S3Prefix() + "/" + f.Filename)
 					io.WriteString(w, err.Error())
 					return
 				}
 				s, err := obj.Stat()
 				if err != nil {
 					w.WriteHeader(http.StatusNotFound)
-					errorPrint(err.Error() + " " + mostRecent.S3Prefix() + "/" + f.Filename)
+					s3backuplog.ErrorPrint(err.Error() + " " + mostRecent.S3Prefix() + "/" + f.Filename)
 					io.WriteString(w, err.Error())
 					return
 				}
@@ -259,7 +262,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		warnPrint("File %s not found in snapshot %s (%s)", r.URL.Query().Get("archive-name"), mostRecent.S3Prefix(), mostRecent.Files)
+		s3backuplog.WarnPrint("File %s not found in snapshot %s (%s)", r.URL.Query().Get("archive-name"), mostRecent.S3Prefix(), mostRecent.Files)
 
 		w.WriteHeader(http.StatusNotFound)
 		return
@@ -269,7 +272,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reusecsum := r.URL.Query().Get("reuse-csum")
 		size := r.URL.Query().Get("size")
 		S, _ := strconv.ParseUint(size, 10, 64)
-		infoPrint("Archive name : %s, size: %s\n", fidxname, size)
+		s3backuplog.InfoPrint("Archive name : %s, size: %s\n", fidxname, size)
 		wid := atomic.AddInt32(&s.CurWriter, 1)
 		resp, _ := json.Marshal(Response{
 			Data: wid,
@@ -296,21 +299,21 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				w.Write([]byte(err.Error()))
-				errorPrint("Failed to find index %s to be reused: %s", s.Writers[int32(wid)].ReuseCSUM, err.Error())
+				s3backuplog.ErrorPrint("Failed to find index %s to be reused: %s", s.Writers[int32(wid)].ReuseCSUM, err.Error())
 				return
 			}
 			outFile, err = io.ReadAll(obj)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				w.Write([]byte(err.Error()))
-				errorPrint("Failed to find index %s to be reused: %s", s.Writers[int32(wid)].ReuseCSUM, err.Error())
+				s3backuplog.ErrorPrint("Failed to find index %s to be reused: %s", s.Writers[int32(wid)].ReuseCSUM, err.Error())
 				return
 			}
 			//Chunk size and size cannot be known since incremental may potentially upload 0 chunks, so we take them from reused index
 			s.Writers[int32(wid)].Size = binary.LittleEndian.Uint64(outFile[64:72])
 			s.Writers[int32(wid)].Chunksize = binary.NativeEndian.Uint64(outFile[72:80])
 
-			debugPrint("Reusing old index")
+			s3backuplog.DebugPrint("Reusing old index")
 		} else {
 			//In that case a new index is allocated, 4096 is the header, then size/chunksize blocks follow of 32 bytes ( chunk digest sha 256 )
 			outFile = make([]byte, 4096+32*len(s.Writers[int32(wid)].Assignments))
@@ -336,7 +339,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				if s.Writers[int32(wid)].ReuseCSUM == "" {
 					w.WriteHeader(http.StatusInternalServerError)
 					io.WriteString(w, "Hole in index")
-					errorPrint("Backup failed because of hole in fixed index")
+					s3backuplog.ErrorPrint("Backup failed because of hole in fixed index")
 					return
 				}
 			} else {
@@ -360,7 +363,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))
-			errorPrint("%s failed to upload to S3 bucket: %s", s.Writers[int32(wid)].FidxName, err.Error())
+			s3backuplog.ErrorPrint("%s failed to upload to S3 bucket: %s", s.Writers[int32(wid)].FidxName, err.Error())
 			return
 		}
 		//This copy of the object is later used to lookup when reuse-csum is in play ( incremental backup )
@@ -375,7 +378,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))
-			errorPrint("%s failed to make a copy of the index on S3 bucket: %s", s.Writers[int32(wid)].FidxName, err.Error())
+			s3backuplog.ErrorPrint("%s failed to make a copy of the index on S3 bucket: %s", s.Writers[int32(wid)].FidxName, err.Error())
 			return
 		}
 	}
@@ -397,14 +400,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if len(req.DigestList) != len(req.OffsetList) {
 			w.WriteHeader(http.StatusBadRequest)
 			io.WriteString(w, "Digest list and Offset list size does not match")
-			errorPrint("%s: Digest list and Offset list size does not match", s.Writers[req.Wid].FidxName)
+			s3backuplog.ErrorPrint("%s: Digest list and Offset list size does not match", s.Writers[req.Wid].FidxName)
 			return
 		}
 		for i := 0; i < len(req.DigestList); i++ {
 			if req.OffsetList[i]%s.Writers[req.Wid].Chunksize != 0 {
 				w.WriteHeader(http.StatusBadRequest)
 				io.WriteString(w, "Chunk offset not at chunk-size boundary")
-				errorPrint("%s: Chunk offset not at chunk-size boundary", s.Writers[req.Wid].FidxName)
+				s3backuplog.ErrorPrint("%s: Chunk offset not at chunk-size boundary", s.Writers[req.Wid].FidxName)
 				return
 			}
 		}
@@ -450,7 +453,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				w.Write([]byte(err.Error()))
 			}
 		} else {
-			debugPrint("%s already in S3", digest)
+			s3backuplog.DebugPrint("%s already in S3", digest)
 		}
 		if s.Writers[int32(wid)].Chunksize == 0 {
 			//Here chunk size is derived
@@ -469,7 +472,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))
-			errorPrint("%s failed to upload blob to S3 bucket: %s", blobname, err.Error())
+			s3backuplog.ErrorPrint("%s failed to upload blob to S3 bucket: %s", blobname, err.Error())
 		}
 
 	}
@@ -492,7 +495,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		st, err := obj.Stat()
 		if err != nil {
 			w.WriteHeader(http.StatusNotFound)
-			errorPrint(err.Error() + " " + s.Snapshot.S3Prefix() + "/" + blobname)
+			s3backuplog.ErrorPrint(err.Error() + " " + s.Snapshot.S3Prefix() + "/" + blobname)
 			io.WriteString(w, err.Error())
 			return
 		}
@@ -516,15 +519,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			w.WriteHeader(http.StatusNotFound)
 			w.Write([]byte(err.Error()))
-			errorPrint("%s: Critical: Missing chunk on S3 bucket: %s", digest, err.Error())
+			s3backuplog.ErrorPrint("%s: Critical: Missing chunk on S3 bucket: %s", digest, err.Error())
 			return
 		}
 		st, err := obj.Stat()
 		if err != nil {
 			w.WriteHeader(http.StatusNotFound)
-			errorPrint(err.Error() + " " + s3name)
+			s3backuplog.ErrorPrint(err.Error() + " " + s3name)
 			io.WriteString(w, err.Error())
-			errorPrint("%s: Critical: Missing chunk on S3 bucket: %s", digest, err.Error())
+			s3backuplog.ErrorPrint("%s: Critical: Missing chunk on S3 bucket: %s", digest, err.Error())
 			return
 		}
 
@@ -543,11 +546,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				fmt.Println(name, value)
 			}
 		}*/
-		debugPrint("List buckets")
+		s3backuplog.DebugPrint("List buckets")
 		bckts, err := C.Client.ListBuckets(context.Background())
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			errorPrint("Failed to list buckets: %s", err.Error())
+			s3backuplog.ErrorPrint("Failed to list buckets: %s", err.Error())
 			io.WriteString(w, err.Error())
 			return
 		}
@@ -591,7 +594,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
-				errorPrint(err.Error())
+				s3backuplog.ErrorPrint(err.Error())
 				return
 			}
 			json.Unmarshal(body, &req)
@@ -600,12 +603,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			for name, values := range r.Header {
 				// Loop over all values for the name.
 				for _, value := range values {
-					debugPrint("%s=%s", name, value)
+					s3backuplog.DebugPrint("%s=%s", name, value)
 				}
 			}
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
-				errorPrint("Failed to parse form: %s", err.Error())
+				s3backuplog.ErrorPrint("Failed to parse form: %s", err.Error())
 				return
 			}
 			req.Password = r.FormValue("password")
@@ -622,7 +625,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			AccessKeyID:     strings.Split(req.Username, "@")[0],
 			SecretAccessKey: req.Password,
 			Endpoint:        s.S3Endpoint,
-			Expire: uint64(time.Now().Unix())+s.TicketExpire,
+			Expire:          uint64(time.Now().Unix()) + s.TicketExpire,
 		}
 		minioClient, err := minio.New(te.Endpoint, &minio.Options{
 			Creds:  credentials.NewStaticV4(te.AccessKeyID, te.SecretAccessKey, ""),
@@ -630,7 +633,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 		if err != nil {
 			//w.Header().Add("Connection", "Close")
-			errorPrint("Failed S3 Connection: %s", err.Error())
+			s3backuplog.ErrorPrint("Failed S3 Connection: %s", err.Error())
 			w.WriteHeader(http.StatusForbidden)
 			w.Write([]byte(err.Error()))
 		}
@@ -640,7 +643,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.Auth[ticket.Ticket] = te
 
 		respbody, _ := json.Marshal(resp)
-		debugPrint(string(respbody))
+		s3backuplog.DebugPrint(string(respbody))
 		w.Header().Add("Content-Type", "application/json")
 		//w.Header().Add("Connection", "Close")
 		w.WriteHeader(http.StatusOK)
