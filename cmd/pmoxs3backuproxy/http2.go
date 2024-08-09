@@ -4,12 +4,13 @@ import (
 	"context"
 	"net"
 	"tizbac/pmoxs3backuproxy/internal/s3backuplog"
+	"tizbac/pmoxs3backuproxy/internal/s3pmoxcommon"
 
 	"github.com/minio/minio-go/v7"
 	"golang.org/x/net/http2"
 )
 
-func (s *Server) backup(sock net.Conn, C TicketEntry, ds string, S Snapshot) {
+func (s *Server) backup(sock net.Conn, C TicketEntry, ds string, S s3pmoxcommon.Snapshot) {
 	srv := &http2.Server{}
 	//We serve the HTTP2 connection back using default handler after protocol upgrade
 	snew := &Server{Auth: make(map[string]TicketEntry), H2Ticket: &C, SelectedDataStore: &ds, Snapshot: &S, Writers: make(map[int32]*Writer), Finished: false}
@@ -35,7 +36,7 @@ func (s *Server) backup(sock net.Conn, C TicketEntry, ds string, S Snapshot) {
 	}
 }
 
-func (s *Server) restore(sock net.Conn, C TicketEntry, ds string, S Snapshot) {
+func (s *Server) restore(sock net.Conn, C TicketEntry, ds string, S s3pmoxcommon.Snapshot) {
 	srv := &http2.Server{}
 	//We serve the HTTP2 connection back using default handler after protocol upgrade
 	snew := &Server{Auth: make(map[string]TicketEntry), H2Ticket: &C, SelectedDataStore: &ds, Snapshot: &S, Writers: make(map[int32]*Writer), Finished: false}

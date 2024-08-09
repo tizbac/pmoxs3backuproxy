@@ -1,6 +1,8 @@
 package main
 
 import (
+	"tizbac/pmoxs3backuproxy/internal/s3pmoxcommon"
+
 	"github.com/minio/minio-go/v7"
 )
 
@@ -24,7 +26,7 @@ type TicketEntry struct {
 	SecretAccessKey string
 	Endpoint        string
 	Client          *minio.Client
-	Expire			uint64
+	Expire          uint64
 }
 
 type Writer struct {
@@ -39,13 +41,13 @@ type Server struct {
 	Auth              map[string]TicketEntry
 	H2Ticket          *TicketEntry
 	SelectedDataStore *string
-	Snapshot          *Snapshot
+	Snapshot          *s3pmoxcommon.Snapshot
 	Writers           map[int32]*Writer
 	CurWriter         int32
 	Finished          bool
 	S3Endpoint        string
 	SecureFlag        bool
-	TicketExpire	  uint64
+	TicketExpire      uint64
 }
 
 type DataStoreStatus struct {
@@ -65,20 +67,6 @@ type FixedIndexCloseRequest struct {
 	CSum       string `json:"csum"`
 	Wid        int32  `json:"wid"`
 	Size       int64  `json:"size"`
-}
-
-type SnapshotFile struct {
-	Filename  string `json:"filename"`
-	CryptMode string `json:"crypt-mode"` //none
-	Size      uint64 `json:"size"`
-}
-
-type Snapshot struct {
-	BackupID   string         `json:"backup-id"`
-	BackupTime uint64         `json:"backup-time"`
-	BackupType string         `json:"backup-type"` // vm , ct, host
-	Files      []SnapshotFile `json:"files"`
-	Protected  bool           `json:"protected"`
 }
 
 type Response struct {

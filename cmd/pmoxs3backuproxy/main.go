@@ -28,7 +28,6 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
-	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -36,6 +35,7 @@ import (
 	"sync/atomic"
 	"time"
 	"tizbac/pmoxs3backuproxy/internal/s3backuplog"
+	"tizbac/pmoxs3backuproxy/internal/s3pmoxcommon"
 
 	"github.com/google/uuid"
 	"github.com/minio/minio-go/v7"
@@ -50,17 +50,6 @@ func RandStringBytes(n int) string {
 		b[i] = letterBytes[rand.Intn(len(letterBytes))]
 	}
 	return string(b)
-}
-
-func (S *Snapshot) initWithQuery(v url.Values) {
-	S.BackupID = v.Get("backup-id")
-	S.BackupTime, _ = strconv.ParseUint(v.Get("backup-time"), 10, 64)
-	S.BackupType = v.Get("backup-type")
-	S.Protected = false
-}
-
-func (S *Snapshot) S3Prefix() string {
-	return fmt.Sprintf("backups/%s|%d|%s", S.BackupID, S.BackupTime, S.BackupType)
 }
 
 func main() {
@@ -109,54 +98,6 @@ func (s *Server) ticketGC() {
 	}
 }
 
-func (s *Server) listSnapshots(c minio.Client, datastore string) ([]Snapshot, error) {
-	resparray := make([]Snapshot, 0)
-	prefixMap := make(map[string]*Snapshot)
-	ctx := context.Background()
-	for object := range c.ListObjects(ctx, datastore, minio.ListObjectsOptions{Recursive: true, Prefix: "backups/"}) {
-		//log.Println(object.Key)
-		//The object name is backupid|unixtimestamp|type
-		if strings.Count(object.Key, "/") == 2 {
-			path := strings.Split(object.Key, "/")
-			fields := strings.Split(path[1], "|")
-			existing_S, ok := prefixMap[path[1]]
-			if ok {
-				//log.Println(path)
-				if len(path) == 3 {
-					existing_S.Files = append(existing_S.Files, SnapshotFile{
-						Filename:  path[2],
-						CryptMode: "none", //TODO
-						Size:      uint64(object.Size),
-					})
-				}
-				continue
-			}
-			backupid := fields[0]
-			backuptime := fields[1]
-			backuptype := fields[2]
-			backuptimei, _ := strconv.ParseUint(backuptime, 10, 64)
-			S := Snapshot{
-				BackupID:   backupid,
-				BackupTime: backuptimei,
-				BackupType: backuptype,
-				Files:      make([]SnapshotFile, 0),
-			}
-			if len(path) == 3 {
-				S.Files = append(S.Files, SnapshotFile{
-					Filename:  path[2],
-					CryptMode: "none", //TODO
-					Size:      uint64(object.Size),
-				})
-			}
-
-			resparray = append(resparray, S)
-			prefixMap[path[1]] = &resparray[len(resparray)-1]
-
-		}
-	}
-	return resparray, ctx.Err()
-}
-
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	cookiere := regexp.MustCompile(`PBSAuthCookie=([^;]+)`)
 	matches := cookiere.FindStringSubmatch(r.Header.Get("Cookie"))
@@ -193,7 +134,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if strings.HasPrefix(action, "snapshots") {
-			resparray, err := s.listSnapshots(*C.Client, ds)
+			resparray, err := s3pmoxcommon.ListSnapshots(*C.Client, ds, false)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				io.WriteString(w, err.Error())
@@ -213,7 +154,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasPrefix(r.RequestURI, "/previous?") && s.H2Ticket != nil && r.Method == "GET" {
 		s3backuplog.InfoPrint("Handling get request for previous (%s)", r.URL.Query().Get("archive-name"))
-		snapshots, err := s.listSnapshots(*s.H2Ticket.Client, *s.SelectedDataStore)
+		snapshots, err := s3pmoxcommon.ListSnapshots(*s.H2Ticket.Client, *s.SelectedDataStore, false)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			io.WriteString(w, err.Error())
@@ -221,7 +162,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		var mostRecent *Snapshot
+		var mostRecent *s3pmoxcommon.Snapshot
 		for _, sl := range snapshots {
 			if (mostRecent == nil || sl.BackupTime > mostRecent.BackupTime) && s.Snapshot.BackupID == sl.BackupID {
 				mostRecent = &sl
@@ -573,8 +514,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusSwitchingProtocols)
 		hj, _ := w.(http.Hijacker)
 		conn, _, _ := hj.Hijack() //Here SSL/TCP connection is deowned from the HTTP1.1 server and passed to HTTP2 handler after sending headers telling the client that we are switching protocols
-		ss := Snapshot{}
-		ss.initWithQuery(r.URL.Query())
+		ss := s3pmoxcommon.Snapshot{}
+		ss.InitWithQuery(r.URL.Query())
 		go s.backup(conn, C, r.URL.Query().Get("store"), ss)
 	}
 
@@ -583,8 +524,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusSwitchingProtocols)
 		hj, _ := w.(http.Hijacker)
 		conn, _, _ := hj.Hijack() //Here SSL/TCP connection is deowned from the HTTP1.1 server and passed to HTTP2 handler after sending headers telling the client that we are switching protocols
-		ss := Snapshot{}
-		ss.initWithQuery(r.URL.Query())
+		ss := s3pmoxcommon.Snapshot{}
+		ss.InitWithQuery(r.URL.Query())
 		go s.restore(conn, C, r.URL.Query().Get("store"), ss)
 	}
 
