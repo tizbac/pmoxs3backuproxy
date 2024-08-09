@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"flag"
 	"io"
@@ -11,6 +12,8 @@ import (
 	"tizbac/pmoxs3backuproxy/internal/s3backuplog"
 	"tizbac/pmoxs3backuproxy/internal/s3pmoxcommon"
 
+	"github.com/juju/clock"
+	"github.com/juju/mutex/v2"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
@@ -44,11 +47,27 @@ func main() {
 		skey = string(data)
 		skey = strings.Trim(skey, " \r\t\n")
 	}
-
+	var err error
 	minioClient, err := minio.New(*endpointFlag, &minio.Options{
 		Creds:  credentials.NewStaticV4(*accessKeyID, skey, ""),
 		Secure: (*secureFlag),
 	})
+
+	h := sha256.Sum256([]byte(*endpointFlag + "|" + *bucketFlag))
+	lockname := "PBSS3" + hex.EncodeToString(h[:])[:16]
+	sp := mutex.Spec{
+		Clock:   clock.WallClock,
+		Name:    lockname,
+		Delay:   time.Millisecond,
+		Timeout: time.Second * 30,
+	}
+
+	SessionsRelease, err := mutex.Acquire(sp)
+	if err != nil {
+		s3backuplog.ErrorPrint("Failed to acquire Lock for %s: %s", lockname, err.Error())
+		return
+	}
+	s3backuplog.DebugPrint("Locked %s", lockname)
 
 	if err != nil {
 		s3backuplog.ErrorPrint("Creating S3 Client: %s", err.Error())
@@ -193,5 +212,7 @@ func main() {
 
 		}
 	}
+
+	SessionsRelease.Release()
 
 }

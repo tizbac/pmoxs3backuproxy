@@ -7,6 +7,10 @@ require (
 	github.com/go-ini/ini v1.67.0 // indirect
 	github.com/goccy/go-json v0.10.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/juju/clock v1.1.1 // indirect
+	github.com/juju/errors v1.0.0 // indirect
+	github.com/juju/mutex v0.0.0-20180619145857-d21b13acf4bf // indirect
+	github.com/juju/mutex/v2 v2.0.0 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.8 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect

@@ -1,8 +1,10 @@
 package main
 
 import (
+	"sync"
 	"tizbac/pmoxs3backuproxy/internal/s3pmoxcommon"
 
+	"github.com/juju/mutex/v2"
 	"github.com/minio/minio-go/v7"
 )
 
@@ -48,6 +50,9 @@ type Server struct {
 	S3Endpoint        string
 	SecureFlag        bool
 	TicketExpire      uint64
+	Sessions          uint64
+	SessionsMutex     sync.Mutex
+	SessionsRelease   mutex.Releaser
 }
 
 type DataStoreStatus struct {
