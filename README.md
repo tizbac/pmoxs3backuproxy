@@ -13,6 +13,8 @@
 WIP!! 
 Use as follows
 
+Note: Garbage collector is experimental, use with extreme caution
+
 # Usage
 
 ```
