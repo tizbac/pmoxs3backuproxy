@@ -42,6 +42,8 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
+var connectionList = make(map[string]*minio.Client)
+
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 func RandStringBytes(n int) string {
@@ -562,25 +564,30 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		resp := Response{Data: ticket}
 
+		username := strings.Split(req.Username, "@")[0]
 		te := TicketEntry{
-			AccessKeyID:     strings.Split(req.Username, "@")[0],
+			AccessKeyID:     username,
 			SecretAccessKey: req.Password,
 			Endpoint:        s.S3Endpoint,
 			Expire:          uint64(time.Now().Unix()) + s.TicketExpire,
 		}
-		minioClient, err := minio.New(te.Endpoint, &minio.Options{
-			Creds:  credentials.NewStaticV4(te.AccessKeyID, te.SecretAccessKey, ""),
-			Secure: s.SecureFlag,
-		})
-		if err != nil {
-			//w.Header().Add("Connection", "Close")
-			s3backuplog.ErrorPrint("Failed S3 Connection: %s", err.Error())
-			w.WriteHeader(http.StatusForbidden)
-			w.Write([]byte(err.Error()))
+		_, ok := connectionList[username]
+		if ok {
+			s3backuplog.DebugPrint("Re-using minio connection for username: %s", username)
+		} else {
+			s3backuplog.DebugPrint("Setup NEW minio connection for username: %s", username)
+			minioClient, err := minio.New(te.Endpoint, &minio.Options{
+				Creds:  credentials.NewStaticV4(te.AccessKeyID, te.SecretAccessKey, ""),
+				Secure: s.SecureFlag,
+			})
+			if err != nil {
+				s3backuplog.ErrorPrint("Failed S3 Connection: %s", err.Error())
+				w.WriteHeader(http.StatusForbidden)
+				w.Write([]byte(err.Error()))
+			}
+			connectionList[username] = minioClient
 		}
-
-		te.Client = minioClient
-
+		te.Client = connectionList[username]
 		s.Auth[ticket.Ticket] = te
 
 		respbody, _ := json.Marshal(resp)
