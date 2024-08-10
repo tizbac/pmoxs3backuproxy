@@ -151,7 +151,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	/*Backup HTTP2 Api*/
 	if strings.HasPrefix(r.RequestURI, "/finish") && s.H2Ticket != nil && r.Method == "POST" {
-
 		s.Finished = true
 	}
 	if strings.HasPrefix(r.RequestURI, "/previous?") && s.H2Ticket != nil && r.Method == "GET" {
@@ -581,9 +580,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				Secure: s.SecureFlag,
 			})
 			if err != nil {
-				s3backuplog.ErrorPrint("Failed S3 Connection: %s", err.Error())
+				s3backuplog.ErrorPrint("Failed to initialize S3 Object: %s", err.Error())
 				w.WriteHeader(http.StatusForbidden)
 				w.Write([]byte(err.Error()))
+				return
 			}
 			connectionList[username] = minioClient
 		}
