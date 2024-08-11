@@ -1,7 +1,19 @@
 builds:
-  -
-    main: .
-    binary: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}"
+  - id: pmoxs3backuproxy
+    main: ./cmd/pmoxs3backuproxy
+    binary: "pmoxs3backuproxy-{{ .Os }}-{{ .Arch }}"
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    no_unique_dist_dir: true
+  - id: garbagecollector
+    main: ./cmd/garbagecollector
+    binary: "garbagecollector-{{ .Os }}-{{ .Arch }}"
     env:
       - CGO_ENABLED=0
     goos:

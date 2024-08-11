@@ -16,7 +16,8 @@ RUN go mod download
 COPY . .
 
 # Build
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -o pmoxs3backuproxy
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build tizbac/pmoxs3backuproxy/cmd/pmoxs3backuproxy
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build tizbac/pmoxs3backuproxy/cmd/garbagecollector
 
 # Use chainguard static image as a minimal base
 # Refer to https://images.chainguard.dev/directory/image/static/versions for more details
@@ -25,6 +26,7 @@ FROM cgr.dev/chainguard/static:latest
 WORKDIR /
 
 COPY --from=builder /workspace/pmoxs3backuproxy .
+COPY --from=builder /workspace/garbagecollector .
 
 COPY server.crt /
 COPY server.key /
