@@ -40,7 +40,13 @@ func (s *Server) backup(sock net.Conn, C TicketEntry, ds string, S s3pmoxcommon.
 
 	srv := &http2.Server{}
 	//We serve the HTTP2 connection back using default handler after protocol upgrade
-	snew := &Server{Auth: make(map[string]TicketEntry), H2Ticket: &C, SelectedDataStore: &ds, Snapshot: &S, Writers: make(map[int32]*Writer), Finished: false}
+	snew := &Server{
+		H2Ticket:          &C,
+		SelectedDataStore: &ds,
+		Snapshot:          &S,
+		Writers:           make(map[int32]*Writer),
+		Finished:          false,
+	}
 	srv.ServeConn(sock, &http2.ServeConnOpts{Handler: snew})
 	if !snew.Finished { //Incomplete backup because connection died pve side, remove from S3
 		s3backuplog.WarnPrint("Removing incomplete backup %s", snew.Snapshot.S3Prefix())
@@ -93,7 +99,13 @@ func (s *Server) restore(sock net.Conn, C TicketEntry, ds string, S s3pmoxcommon
 
 	srv := &http2.Server{}
 	//We serve the HTTP2 connection back using default handler after protocol upgrade
-	snew := &Server{Auth: make(map[string]TicketEntry), H2Ticket: &C, SelectedDataStore: &ds, Snapshot: &S, Writers: make(map[int32]*Writer), Finished: false}
+	snew := &Server{
+		H2Ticket:          &C,
+		SelectedDataStore: &ds,
+		Snapshot:          &S,
+		Writers:           make(map[int32]*Writer),
+		Finished:          false,
+	}
 	srv.ServeConn(sock, &http2.ServeConnOpts{Handler: snew})
 
 	s.SessionsMutex.Lock()

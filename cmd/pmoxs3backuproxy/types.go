@@ -40,7 +40,7 @@ type Writer struct {
 }
 
 type Server struct {
-	Auth              map[string]TicketEntry
+	Auth              sync.Map
 	H2Ticket          *TicketEntry
 	SelectedDataStore *string
 	Snapshot          *s3pmoxcommon.Snapshot
