@@ -70,7 +70,11 @@ func main() {
 	if *debug {
 		s3backuplog.EnableDebug()
 	}
-	S := &Server{Auth: make(map[string]TicketEntry), S3Endpoint: *endpointFlag, SecureFlag: *insecureFlag, TicketExpire: *ticketExpireFlag}
+	S := &Server{
+		S3Endpoint:   *endpointFlag,
+		SecureFlag:   *insecureFlag,
+		TicketExpire: *ticketExpireFlag,
+	}
 	srv := &http.Server{Addr: *bindAddress, Handler: S}
 	srv.SetKeepAlivesEnabled(true)
 	go S.ticketGC()
@@ -84,18 +88,19 @@ func main() {
 
 func (s *Server) ticketGC() {
 	for {
-		expireKeys := make([]string, 0)
+		var cnt int64
 		now := uint64(time.Now().Unix())
-		for k, v := range s.Auth {
-			if v.Expire < now {
-				expireKeys = append(expireKeys, k)
+		s.Auth.Range(func(k, v interface{}) bool {
+			te, _ := s.Auth.Load(k)
+			C := te.(TicketEntry)
+			if C.Expire < now {
+				s3backuplog.DebugPrint("Expired ticket %s", k)
+				s.Auth.Delete(k)
+				cnt++
 			}
-		}
-		s3backuplog.DebugPrint("Expire %d tickets", len(expireKeys))
-		for _, k := range expireKeys {
-			delete(s.Auth, k)
-			s3backuplog.DebugPrint("Expired ticket %s", k)
-		}
+			return true
+		})
+		s3backuplog.InfoPrint("Expired %v tickets", cnt)
 		time.Sleep(30 * time.Second)
 	}
 }
@@ -107,7 +112,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	C := TicketEntry{}
 	if len(matches) >= 2 {
-		C, auth = s.Auth[matches[1]]
+		entry, ok := s.Auth.Load(matches[1])
+		if ok {
+			C = entry.(TicketEntry)
+			auth = true
+		}
 	}
 
 	s3backuplog.DebugPrint("Request:" + r.RequestURI)
@@ -587,8 +596,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			connectionList[username] = minioClient
 		}
+
 		te.Client = connectionList[username]
-		s.Auth[ticket.Ticket] = te
+
+		s.Auth.Store(ticket.Ticket, te)
 
 		respbody, _ := json.Marshal(resp)
 		s3backuplog.DebugPrint(string(respbody))
