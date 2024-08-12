@@ -40,6 +40,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/minio/minio-go/v7/pkg/tags"
 )
 
 var connectionList = make(map[string]*minio.Client)
@@ -119,7 +120,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s3backuplog.DebugPrint("Request:" + r.RequestURI)
+	s3backuplog.DebugPrint("Request:" + r.RequestURI + " Method: " + r.Method)
 	path := strings.Split(r.RequestURI, "/")
 
 	if strings.HasPrefix(r.RequestURI, "/dynamic") && s.H2Ticket != nil && r.Method == "POST" {
@@ -131,6 +132,67 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if len(path) >= 7 && strings.HasPrefix(r.RequestURI, "/api2/json/admin/datastore/") && auth {
 		ds := path[5]
 		action := path[6]
+		if strings.HasPrefix(action, "protected") && r.Method == "GET" {
+			var ss s3pmoxcommon.Snapshot
+			ss.InitWithQuery(r.URL.Query())
+			ss.Protected = true
+			w.Header().Add("Content-Type", "application/json")
+			resp, _ := json.Marshal(Response{
+				Data: ss,
+			})
+			w.Write(resp)
+			return
+		}
+		if strings.HasPrefix(action, "protected") && r.Method == "PUT" {
+			var ss s3pmoxcommon.Snapshot
+			ss.BackupID = r.FormValue("backup-id")
+			ss.BackupTime, _ = strconv.ParseUint(r.FormValue("backup-time"), 10, 64)
+			ss.BackupType = r.FormValue("backup-type")
+
+			existingTags, err := C.Client.GetObjectTagging(
+				context.Background(),
+				ds,
+				ss.S3Prefix()+"/index.json.blob",
+				minio.GetObjectTaggingOptions{},
+			)
+			if err != nil {
+				s3backuplog.ErrorPrint("Unable to get tags: %s", err.Error())
+			}
+			var tag *tags.Tags
+			tag, err = tags.NewTags(map[string]string{
+				"protected": "false",
+			}, false)
+			tagmap := existingTags.ToMap()
+			tagvalue, ok := tagmap["protected"]
+			if ok {
+				s3backuplog.InfoPrint("Toggle protection for snapshot: %s", ss.S3Prefix())
+				if tagvalue == "true" {
+					tag.Set("protected", "false")
+				} else {
+					tag.Set("protected", "true")
+				}
+			} else {
+				s3backuplog.InfoPrint("Enable protection for snapshot: %s", ss.S3Prefix())
+				tag.Set("protected", "true")
+			}
+
+			err = C.Client.PutObjectTagging(
+				context.Background(),
+				ds,
+				ss.S3Prefix()+"/index.json.blob",
+				tag,
+				minio.PutObjectTaggingOptions{},
+			)
+			if err != nil {
+				s3backuplog.ErrorPrint("Protection: Unable to set tag for object: %s: %s", ss.S3Prefix(), err.Error())
+			}
+			w.Header().Add("Content-Type", "application/json")
+			resp, _ := json.Marshal(Response{
+				Data: ss,
+			})
+			w.Write(resp)
+			return
+		}
 		if action == "status" {
 			//Seems to not be supported by minio fecthing used size so we return dummy values to make all look fine
 			resp, _ := json.Marshal(Response{
