@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"net"
@@ -11,7 +10,6 @@ import (
 
 	"github.com/juju/clock"
 	"github.com/juju/mutex/v2"
-	"github.com/minio/minio-go/v7"
 	"golang.org/x/net/http2"
 )
 
@@ -49,22 +47,12 @@ func (s *Server) backup(sock net.Conn, C TicketEntry, ds string, S s3pmoxcommon.
 	}
 	srv.ServeConn(sock, &http2.ServeConnOpts{Handler: snew})
 	if !snew.Finished { //Incomplete backup because connection died pve side, remove from S3
-		s3backuplog.WarnPrint("Removing incomplete backup %s", snew.Snapshot.S3Prefix())
-		objectsCh := make(chan minio.ObjectInfo)
-		go func() {
-			defer close(objectsCh)
-			// List all objects from a bucket-name with a matching prefix.
-			opts := minio.ListObjectsOptions{Prefix: S.S3Prefix(), Recursive: true}
-			for object := range C.Client.ListObjects(context.Background(), ds, opts) {
-				if object.Err != nil {
-					s3backuplog.ErrorPrint(object.Err.Error())
-				}
-				objectsCh <- object
-			}
-		}()
-		errorCh := C.Client.RemoveObjects(context.Background(), ds, objectsCh, minio.RemoveObjectsOptions{})
-		for e := range errorCh {
-			s3backuplog.ErrorPrint("Failed to remove " + e.ObjectName + ", error: " + e.Err.Error())
+		S.Datastore = ds
+		S.C = C.Client
+		if err := S.Delete(); err != nil {
+			s3backuplog.ErrorPrint("Failed to remove incomplete backup: " + err.Error())
+		} else {
+			s3backuplog.WarnPrint("Removed incomplete backup %s", snew.Snapshot.S3Prefix())
 		}
 	}
 	s.SessionsMutex.Lock()

@@ -40,6 +40,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/minio/minio-go/v7/pkg/tags"
 )
 
 var connectionList = make(map[string]*minio.Client)
@@ -119,7 +120,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s3backuplog.DebugPrint("Request:" + r.RequestURI)
+	s3backuplog.DebugPrint("Request:" + r.RequestURI + " Method: " + r.Method)
 	path := strings.Split(r.RequestURI, "/")
 
 	if strings.HasPrefix(r.RequestURI, "/dynamic") && s.H2Ticket != nil && r.Method == "POST" {
@@ -131,6 +132,65 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if len(path) >= 7 && strings.HasPrefix(r.RequestURI, "/api2/json/admin/datastore/") && auth {
 		ds := path[5]
 		action := path[6]
+		if strings.HasPrefix(action, "protected") && r.Method == "GET" {
+			var ss s3pmoxcommon.Snapshot
+			ss.InitWithQuery(r.URL.Query())
+			ss.Protected = true
+			w.Header().Add("Content-Type", "application/json")
+			resp, _ := json.Marshal(Response{
+				Data: ss,
+			})
+			w.Write(resp)
+			return
+		}
+		if strings.HasPrefix(action, "protected") && r.Method == "PUT" {
+			var ss s3pmoxcommon.Snapshot
+			ss.InitWithForm(r)
+
+			existingTags, err := C.Client.GetObjectTagging(
+				context.Background(),
+				ds,
+				ss.S3Prefix()+"/index.json.blob",
+				minio.GetObjectTaggingOptions{},
+			)
+			if err != nil {
+				s3backuplog.ErrorPrint("Unable to get tags: %s", err.Error())
+			}
+			var tag *tags.Tags
+			tag, err = tags.NewTags(map[string]string{
+				"protected": "false",
+			}, false)
+			tagmap := existingTags.ToMap()
+			tagvalue, ok := tagmap["protected"]
+			if ok {
+				s3backuplog.InfoPrint("Toggle protection for snapshot: %s", ss.S3Prefix())
+				if tagvalue == "true" {
+					tag.Set("protected", "false")
+				} else {
+					tag.Set("protected", "true")
+				}
+			} else {
+				s3backuplog.InfoPrint("Enable protection for snapshot: %s", ss.S3Prefix())
+				tag.Set("protected", "true")
+			}
+
+			err = C.Client.PutObjectTagging(
+				context.Background(),
+				ds,
+				ss.S3Prefix()+"/index.json.blob",
+				tag,
+				minio.PutObjectTaggingOptions{},
+			)
+			if err != nil {
+				s3backuplog.ErrorPrint("Protection: Unable to set tag for object: %s: %s", ss.S3Prefix(), err.Error())
+			}
+			w.Header().Add("Content-Type", "application/json")
+			resp, _ := json.Marshal(Response{
+				Data: ss,
+			})
+			w.Write(resp)
+			return
+		}
 		if action == "status" {
 			//Seems to not be supported by minio fecthing used size so we return dummy values to make all look fine
 			resp, _ := json.Marshal(Response{
@@ -145,16 +205,36 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if strings.HasPrefix(action, "snapshots") {
-			resparray, err := s3pmoxcommon.ListSnapshots(*C.Client, ds, false)
-			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				io.WriteString(w, err.Error())
+			if r.Method == "DELETE" {
+				var ss s3pmoxcommon.Snapshot
+				ss.InitWithForm(r)
+				ss.Datastore = ds
+				ss.C = C.Client
+				s3backuplog.InfoPrint("Removing snapshot: %s as requested by user", ss.S3Prefix())
+				if err := ss.Delete(); err == nil {
+					w.Header().Add("Content-Type", "application/json")
+					resp, _ := json.Marshal(Response{
+						Data: ss,
+					})
+					w.Write(resp)
+				} else {
+					w.WriteHeader(http.StatusInternalServerError)
+					io.WriteString(w, err.Error())
+				}
 			}
-			resp, _ := json.Marshal(Response{
-				Data: resparray,
-			})
-			w.Header().Add("Content-Type", "application/json")
-			w.Write(resp)
+
+			if r.Method == "GET" {
+				resparray, err := s3pmoxcommon.ListSnapshots(*C.Client, ds, false)
+				if err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					io.WriteString(w, err.Error())
+				}
+				resp, _ := json.Marshal(Response{
+					Data: resparray,
+				})
+				w.Header().Add("Content-Type", "application/json")
+				w.Write(resp)
+			}
 		}
 
 	}
@@ -380,31 +460,31 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		wid, _ := strconv.ParseInt(r.URL.Query().Get("wid"), 10, 32)
 		s3name := fmt.Sprintf("chunks/%s/%s/%s", digest[0:2], digest[2:4], digest[4:])
 
-		obj, err := s.H2Ticket.Client.GetObject(
+		objectStat, e := s.H2Ticket.Client.StatObject(
 			context.Background(),
 			*s.SelectedDataStore,
 			s3name,
-			minio.GetObjectOptions{},
+			minio.StatObjectOptions{},
 		)
-
-		if err == nil {
-			_, err = obj.Stat()
-		}
-		if err != nil {
-			_, err := s.H2Ticket.Client.PutObject(
-				context.Background(),
-				*s.SelectedDataStore,
-				s3name,
-				r.Body,
-				int64(esize),
-				minio.PutObjectOptions{},
-			)
-			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte(err.Error()))
+		if e != nil {
+			errResponse := minio.ToErrorResponse(e)
+			if errResponse.Code == "NoSuchKey" {
+				_, err := s.H2Ticket.Client.PutObject(
+					context.Background(),
+					*s.SelectedDataStore,
+					s3name,
+					r.Body,
+					int64(esize),
+					minio.PutObjectOptions{},
+				)
+				if err != nil {
+					s3backuplog.ErrorPrint("Writing object %s failed: %s", digest, err.Error())
+					w.WriteHeader(http.StatusInternalServerError)
+					w.Write([]byte(err.Error()))
+				}
 			}
 		} else {
-			s3backuplog.DebugPrint("%s already in S3", digest)
+			s3backuplog.DebugPrint("%s already in S3", objectStat.Key)
 		}
 		if s.Writers[int32(wid)].Chunksize == 0 {
 			//Here chunk size is derived
@@ -484,7 +564,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		w.Header().Add("Content-Length", fmt.Sprintf("%d", st.Size))
 		w.WriteHeader(http.StatusOK)
-
 		io.Copy(w, obj)
 	}
 

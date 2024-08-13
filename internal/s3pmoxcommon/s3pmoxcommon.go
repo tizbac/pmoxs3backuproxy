@@ -3,6 +3,7 @@ package s3pmoxcommon
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -16,17 +17,21 @@ func ListSnapshots(c minio.Client, datastore string, returnCorrupted bool) ([]Sn
 	resparray2 := make([]Snapshot, 0)
 	prefixMap := make(map[string]*Snapshot)
 	ctx := context.Background()
-	for object := range c.ListObjects(ctx, datastore, minio.ListObjectsOptions{Recursive: true, Prefix: "backups/"}) {
-		//log.Println(object.Key)
+	for object := range c.ListObjects(
+		ctx, datastore,
+		minio.ListObjectsOptions{Recursive: true, Prefix: "backups/",
+			WithMetadata: true,
+		}) {
 		//The object name is backupid|unixtimestamp|type
 		path := strings.Split(object.Key, "/")
 		if strings.Count(object.Key, "/") == 2 {
-
 			fields := strings.Split(path[1], "|")
 			existing_S, ok := prefixMap[path[1]]
 			if ok {
-				//log.Println(path)
 				if len(path) == 3 {
+					if object.UserTags["protected"] == "true" {
+						existing_S.Protected = true
+					}
 					existing_S.Files = append(existing_S.Files, SnapshotFile{
 						Filename:  path[2],
 						CryptMode: "none", //TODO
@@ -35,6 +40,7 @@ func ListSnapshots(c minio.Client, datastore string, returnCorrupted bool) ([]Sn
 				}
 				continue
 			}
+
 			backupid := fields[0]
 			backuptime := fields[1]
 			backuptype := fields[2]
@@ -44,10 +50,11 @@ func ListSnapshots(c minio.Client, datastore string, returnCorrupted bool) ([]Sn
 				BackupTime: backuptimei,
 				BackupType: backuptype,
 				Files:      make([]SnapshotFile, 0),
-				c:          &c,
-				datastore:  datastore,
+				C:          &c,
+				Datastore:  datastore,
 				corrupted:  false,
 			}
+
 			if len(path) == 3 {
 				S.Files = append(S.Files, SnapshotFile{
 					Filename:  path[2],
@@ -77,7 +84,12 @@ func (S *Snapshot) InitWithQuery(v url.Values) {
 	S.BackupID = v.Get("backup-id")
 	S.BackupTime, _ = strconv.ParseUint(v.Get("backup-time"), 10, 64)
 	S.BackupType = v.Get("backup-type")
-	S.Protected = false
+}
+
+func (S *Snapshot) InitWithForm(r *http.Request) {
+	S.BackupID = r.FormValue("backup-id")
+	S.BackupTime, _ = strconv.ParseUint(r.FormValue("backup-time"), 10, 64)
+	S.BackupType = r.FormValue("backup-type")
 }
 
 func (S *Snapshot) S3Prefix() string {
@@ -90,14 +102,14 @@ func (S *Snapshot) Delete() error {
 		defer close(objectsCh)
 		// List all objects from a bucket-name with a matching prefix.
 		opts := minio.ListObjectsOptions{Prefix: S.S3Prefix(), Recursive: true}
-		for object := range S.c.ListObjects(context.Background(), S.datastore, opts) {
+		for object := range S.C.ListObjects(context.Background(), S.Datastore, opts) {
 			if object.Err != nil {
 				s3backuplog.ErrorPrint(object.Err.Error())
 			}
 			objectsCh <- object
 		}
 	}()
-	errorCh := S.c.RemoveObjects(context.Background(), S.datastore, objectsCh, minio.RemoveObjectsOptions{})
+	errorCh := S.C.RemoveObjects(context.Background(), S.Datastore, objectsCh, minio.RemoveObjectsOptions{})
 	for e := range errorCh {
 		s3backuplog.ErrorPrint("Failed to remove " + e.ObjectName + ", error: " + e.Err.Error())
 		return e.Err

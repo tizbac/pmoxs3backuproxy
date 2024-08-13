@@ -86,6 +86,14 @@ func main() {
 
 	for _, s := range snapshots {
 		if s.BackupTime+(uint64(*retentionDays))*86400 < uint64(time.Now().Unix()) {
+			if s.Protected == true {
+				s3backuplog.DebugPrint("Backup %s/%d is older than %d but marked as protected, skip removal.",
+					s.BackupID,
+					s.BackupTime,
+					*retentionDays,
+				)
+				continue
+			}
 			s3backuplog.DebugPrint("Backup %s/%d is older than %d days, deleting", s.BackupID, s.BackupTime, *retentionDays)
 			s.Delete()
 		} else {
