@@ -145,9 +145,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if strings.HasPrefix(action, "protected") && r.Method == "PUT" {
 			var ss s3pmoxcommon.Snapshot
-			ss.BackupID = r.FormValue("backup-id")
-			ss.BackupTime, _ = strconv.ParseUint(r.FormValue("backup-time"), 10, 64)
-			ss.BackupType = r.FormValue("backup-type")
+			ss.InitWithForm(r)
 
 			existingTags, err := C.Client.GetObjectTagging(
 				context.Background(),

@@ -3,6 +3,7 @@ package s3pmoxcommon
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -83,6 +84,12 @@ func (S *Snapshot) InitWithQuery(v url.Values) {
 	S.BackupID = v.Get("backup-id")
 	S.BackupTime, _ = strconv.ParseUint(v.Get("backup-time"), 10, 64)
 	S.BackupType = v.Get("backup-type")
+}
+
+func (S *Snapshot) InitWithForm(r *http.Request) {
+	S.BackupID = r.FormValue("backup-id")
+	S.BackupTime, _ = strconv.ParseUint(r.FormValue("backup-time"), 10, 64)
+	S.BackupType = r.FormValue("backup-type")
 }
 
 func (S *Snapshot) S3Prefix() string {
