@@ -460,31 +460,32 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		wid, _ := strconv.ParseInt(r.URL.Query().Get("wid"), 10, 32)
 		s3name := fmt.Sprintf("chunks/%s/%s/%s", digest[0:2], digest[2:4], digest[4:])
 
-		obj, err := s.H2Ticket.Client.GetObject(
+		objectStat, e := s.H2Ticket.Client.StatObject(
 			context.Background(),
 			*s.SelectedDataStore,
 			s3name,
-			minio.GetObjectOptions{},
+			minio.StatObjectOptions{},
 		)
-
-		if err == nil {
-			_, err = obj.Stat()
-		}
-		if err != nil {
-			_, err := s.H2Ticket.Client.PutObject(
-				context.Background(),
-				*s.SelectedDataStore,
-				s3name,
-				r.Body,
-				int64(esize),
-				minio.PutObjectOptions{},
-			)
-			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte(err.Error()))
+		if e != nil {
+			errResponse := minio.ToErrorResponse(e)
+			s3backuplog.ErrorPrint("Error getting object %s failed:", e.Error())
+			if errResponse.Code == "NoSuchKey" {
+				_, err := s.H2Ticket.Client.PutObject(
+					context.Background(),
+					*s.SelectedDataStore,
+					s3name,
+					r.Body,
+					int64(esize),
+					minio.PutObjectOptions{},
+				)
+				if err != nil {
+					s3backuplog.ErrorPrint("Writing object %s failed:", digest, err.Error())
+					w.WriteHeader(http.StatusInternalServerError)
+					w.Write([]byte(err.Error()))
+				}
 			}
 		} else {
-			s3backuplog.DebugPrint("%s already in S3", digest)
+			s3backuplog.DebugPrint("%s already in S3", objectStat.Key)
 		}
 		if s.Writers[int32(wid)].Chunksize == 0 {
 			//Here chunk size is derived
@@ -564,7 +565,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		w.Header().Add("Content-Length", fmt.Sprintf("%d", st.Size))
 		w.WriteHeader(http.StatusOK)
-
 		io.Copy(w, obj)
 	}
 
