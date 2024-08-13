@@ -468,7 +468,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		)
 		if e != nil {
 			errResponse := minio.ToErrorResponse(e)
-			s3backuplog.ErrorPrint("Error getting object %s failed:", e.Error())
 			if errResponse.Code == "NoSuchKey" {
 				_, err := s.H2Ticket.Client.PutObject(
 					context.Background(),
@@ -479,7 +478,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					minio.PutObjectOptions{},
 				)
 				if err != nil {
-					s3backuplog.ErrorPrint("Writing object %s failed:", digest, err.Error())
+					s3backuplog.ErrorPrint("Writing object %s failed: %s", digest, err.Error())
 					w.WriteHeader(http.StatusInternalServerError)
 					w.Write([]byte(err.Error()))
 				}
