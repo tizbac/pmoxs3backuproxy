@@ -50,8 +50,8 @@ func ListSnapshots(c minio.Client, datastore string, returnCorrupted bool) ([]Sn
 				BackupTime: backuptimei,
 				BackupType: backuptype,
 				Files:      make([]SnapshotFile, 0),
-				c:          &c,
-				datastore:  datastore,
+				C:          &c,
+				Datastore:  datastore,
 				corrupted:  false,
 			}
 
@@ -102,14 +102,14 @@ func (S *Snapshot) Delete() error {
 		defer close(objectsCh)
 		// List all objects from a bucket-name with a matching prefix.
 		opts := minio.ListObjectsOptions{Prefix: S.S3Prefix(), Recursive: true}
-		for object := range S.c.ListObjects(context.Background(), S.datastore, opts) {
+		for object := range S.C.ListObjects(context.Background(), S.Datastore, opts) {
 			if object.Err != nil {
 				s3backuplog.ErrorPrint(object.Err.Error())
 			}
 			objectsCh <- object
 		}
 	}()
-	errorCh := S.c.RemoveObjects(context.Background(), S.datastore, objectsCh, minio.RemoveObjectsOptions{})
+	errorCh := S.C.RemoveObjects(context.Background(), S.Datastore, objectsCh, minio.RemoveObjectsOptions{})
 	for e := range errorCh {
 		s3backuplog.ErrorPrint("Failed to remove " + e.ObjectName + ", error: " + e.Err.Error())
 		return e.Err

@@ -14,7 +14,7 @@ type Snapshot struct {
 	BackupType string         `json:"backup-type"` // vm , ct, host
 	Files      []SnapshotFile `json:"files"`
 	Protected  bool           `json:"protected"`
-	c          *minio.Client
-	datastore  string
+	C          *minio.Client
+	Datastore  string
 	corrupted  bool
 }

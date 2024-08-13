@@ -205,16 +205,36 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if strings.HasPrefix(action, "snapshots") {
-			resparray, err := s3pmoxcommon.ListSnapshots(*C.Client, ds, false)
-			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				io.WriteString(w, err.Error())
+			if r.Method == "DELETE" {
+				var ss s3pmoxcommon.Snapshot
+				ss.InitWithForm(r)
+				ss.Datastore = ds
+				ss.C = C.Client
+				s3backuplog.InfoPrint("Removing snapshot: %s as requested by user", ss.S3Prefix())
+				if err := ss.Delete(); err == nil {
+					w.Header().Add("Content-Type", "application/json")
+					resp, _ := json.Marshal(Response{
+						Data: ss,
+					})
+					w.Write(resp)
+				} else {
+					w.WriteHeader(http.StatusInternalServerError)
+					io.WriteString(w, err.Error())
+				}
 			}
-			resp, _ := json.Marshal(Response{
-				Data: resparray,
-			})
-			w.Header().Add("Content-Type", "application/json")
-			w.Write(resp)
+
+			if r.Method == "GET" {
+				resparray, err := s3pmoxcommon.ListSnapshots(*C.Client, ds, false)
+				if err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					io.WriteString(w, err.Error())
+				}
+				resp, _ := json.Marshal(Response{
+					Data: resparray,
+				})
+				w.Header().Add("Content-Type", "application/json")
+				w.Write(resp)
+			}
 		}
 
 	}
