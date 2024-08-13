@@ -204,6 +204,28 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Write(resp)
 		}
 
+		if strings.HasPrefix(action, "upload-backup-log") && r.Method == "POST" {
+			var ss s3pmoxcommon.Snapshot
+			ss.InitWithQuery(r.URL.Query())
+			tgtfile := ss.S3Prefix() + "/client.log.blob"
+			_, err := C.Client.PutObject(
+				context.Background(),
+				ds,
+				tgtfile,
+				r.Body,
+				r.ContentLength,
+				minio.PutObjectOptions{},
+			)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(err.Error()))
+				s3backuplog.ErrorPrint("%s failed to upload backup log: %s", err.Error())
+				return
+			}
+			s3backuplog.InfoPrint("Saved backup log: %s", tgtfile)
+			w.WriteHeader(http.StatusOK)
+		}
+
 		if strings.HasPrefix(action, "snapshots") {
 			if r.Method == "DELETE" {
 				var ss s3pmoxcommon.Snapshot
@@ -417,6 +439,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.RequestURI, "/fixed_index") && s.H2Ticket != nil && r.Method == "PUT" {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
+			s3backuplog.ErrorPrint("Unable to read body: %s", err.Error())
 			w.WriteHeader(http.StatusBadRequest)
 			w.Write([]byte(err.Error()))
 			return
@@ -424,6 +447,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		req := AssignmentRequest{}
 		err = json.Unmarshal(body, &req)
 		if err != nil {
+			s3backuplog.ErrorPrint("Unable to unmarshal json: %s", err.Error())
 			w.WriteHeader(http.StatusBadRequest)
 			w.Write([]byte(err.Error()))
 			return
@@ -446,6 +470,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		for i := 0; i < len(req.DigestList); i++ {
 			b, err := hex.DecodeString(req.DigestList[i])
 			if err != nil {
+				s3backuplog.ErrorPrint("Unable to decode digest: %s", err.Error())
 				w.WriteHeader(http.StatusBadRequest)
 				io.WriteString(w, err.Error())
 			}
