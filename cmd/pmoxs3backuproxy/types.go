@@ -74,6 +74,13 @@ type FixedIndexCloseRequest struct {
 	Size       int64  `json:"size"`
 }
 
+type ChunkUploadInfo struct {
+	Digest string `json:"digest"`
+	Offset int64  `json:"offset"`
+	Size   int64  `json:"size"`
+	Known  bool   `json:"chunk_is_known"`
+}
+
 type Response struct {
 	Data interface{} `json:"data"`
 	// other fields
