@@ -20,6 +20,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -132,6 +133,66 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if len(path) >= 7 && strings.HasPrefix(r.RequestURI, "/api2/json/admin/datastore/") && auth {
 		ds := path[5]
 		action := path[6]
+		if strings.HasPrefix(action, "notes") && r.Method == "GET" {
+			var ss s3pmoxcommon.Snapshot
+			ss.InitWithQuery(r.URL.Query())
+			ss.Datastore = ds
+			existingTags, err := ss.ReadTags(*C.Client)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(err.Error()))
+				return
+			}
+			var note []byte
+			tagvalue, ok := existingTags["note"]
+			if ok {
+				note, _ = base64.RawStdEncoding.DecodeString(tagvalue)
+			}
+			w.Header().Add("Content-Type", "application/json")
+			resp, _ := json.Marshal(Response{
+				Data: string(note),
+			})
+			w.Write(resp)
+			return
+		}
+		if strings.HasPrefix(action, "notes") && r.Method == "PUT" {
+			var ss s3pmoxcommon.Snapshot
+			var tag *tags.Tags
+			ss.InitWithQuery(r.URL.Query())
+			ss.Datastore = ds
+			note := r.FormValue("notes")
+			note = base64.RawStdEncoding.EncodeToString([]byte(note))
+			existingTags, _ := ss.ReadTags(*C.Client)
+			existingTags["note"] = note
+			tag, _ = tags.NewTags(existingTags, false)
+			err := C.Client.PutObjectTagging(
+				context.Background(),
+				ds,
+				ss.S3Prefix()+"/index.json.blob",
+				tag,
+				minio.PutObjectTaggingOptions{},
+			)
+			if err != nil {
+				s3backuplog.ErrorPrint("Unable to set note tag for object: %s: %s", ss.S3Prefix(), err.Error())
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(err.Error()))
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		}
+		if strings.HasPrefix(action, "files") && r.Method == "GET" {
+			var ss s3pmoxcommon.Snapshot
+			ss.InitWithQuery(r.URL.Query())
+			ss.Datastore = ds
+			ss.GetFiles(*C.Client)
+			w.Header().Add("Content-Type", "application/json")
+			resp, _ := json.Marshal(Response{
+				Data: ss.Files,
+			})
+			w.Write(resp)
+			return
+		}
+
 		if strings.HasPrefix(action, "protected") && r.Method == "GET" {
 			var ss s3pmoxcommon.Snapshot
 			ss.InitWithQuery(r.URL.Query())
@@ -145,35 +206,29 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if strings.HasPrefix(action, "protected") && r.Method == "PUT" {
 			var ss s3pmoxcommon.Snapshot
-			ss.InitWithForm(r)
-
-			existingTags, err := C.Client.GetObjectTagging(
-				context.Background(),
-				ds,
-				ss.S3Prefix()+"/index.json.blob",
-				minio.GetObjectTaggingOptions{},
-			)
-			if err != nil {
-				s3backuplog.ErrorPrint("Unable to get tags: %s", err.Error())
-			}
 			var tag *tags.Tags
-			tag, err = tags.NewTags(map[string]string{
-				"protected": "false",
-			}, false)
-			tagmap := existingTags.ToMap()
-			tagvalue, ok := tagmap["protected"]
+			ss.InitWithForm(r)
+			ss.Datastore = ds
+			existingTags, err := ss.ReadTags(*C.Client)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(err.Error()))
+				return
+			}
+			tagvalue, ok := existingTags["protected"]
 			if ok {
 				s3backuplog.InfoPrint("Toggle protection for snapshot: %s", ss.S3Prefix())
 				if tagvalue == "true" {
-					tag.Set("protected", "false")
+					existingTags["protected"] = "false"
 				} else {
-					tag.Set("protected", "true")
+					existingTags["protected"] = "true"
 				}
 			} else {
 				s3backuplog.InfoPrint("Enable protection for snapshot: %s", ss.S3Prefix())
-				tag.Set("protected", "true")
+				existingTags["protected"] = "true"
 			}
 
+			tag, _ = tags.NewTags(existingTags, false)
 			err = C.Client.PutObjectTagging(
 				context.Background(),
 				ds,
