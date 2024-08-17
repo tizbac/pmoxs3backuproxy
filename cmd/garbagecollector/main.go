@@ -53,6 +53,7 @@ func main() {
 		Secure: (*secureFlag),
 	})
 
+	s3backuplog.InfoPrint("Acquire Lock")
 	h := sha256.Sum256([]byte(*endpointFlag + "|" + *bucketFlag))
 	lockname := "PBSS3" + hex.EncodeToString(h[:])[:16]
 	sp := mutex.Spec{
@@ -77,13 +78,14 @@ func main() {
 	//TODO Locking
 	//Phase 1 Delete backups older than retentionDays
 
+	s3backuplog.InfoPrint("Fetching snapshots")
 	snapshots, err := s3pmoxcommon.ListSnapshots(*minioClient, *bucketFlag, true)
 	if err != nil {
-		s3backuplog.ErrorPrint("Listing snapshots: %s", err.Error())
+		s3backuplog.ErrorPrint("Unable to list snapshots: %s", err.Error())
 		os.Exit(1)
 		return
 	}
-
+	s3backuplog.InfoPrint("%v snapshots in archive", len(snapshots))
 	for _, s := range snapshots {
 		if s.BackupTime+(uint64(*retentionDays))*86400 < uint64(time.Now().Unix()) {
 			if s.Protected == true {
@@ -107,11 +109,13 @@ func main() {
 	knownChunks := make(map[string][]string)
 	existingChunks := make(map[string]bool)
 	ctx := context.Background()
+	s3backuplog.InfoPrint("Fetching object hashes")
 	for object := range minioClient.ListObjects(ctx, *bucketFlag, minio.ListObjectsOptions{Recursive: true, Prefix: "backups/"}) {
 		knownHashes[object.ChecksumSHA256] = true
-
 	}
+	s3backuplog.InfoPrint("%v object hashes found", len(knownHashes))
 
+	s3backuplog.InfoPrint("Removing orphaned indexes")
 	objectsCh := make(chan minio.ObjectInfo)
 	go func() {
 		defer close(objectsCh)
@@ -176,13 +180,13 @@ func main() {
 		}
 	}
 
-	s3backuplog.DebugPrint("Enumerated %d referenced chunks", len(knownChunks))
+	s3backuplog.InfoPrint("Enumerated %d referenced chunks", len(knownChunks))
 	//Delete orphaned chunks
 
+	s3backuplog.InfoPrint("Removing orphaned chunks")
 	objectsCh = make(chan minio.ObjectInfo)
 	go func() {
 		defer close(objectsCh)
-
 		for object := range minioClient.ListObjects(ctx, *bucketFlag, minio.ListObjectsOptions{Recursive: true, Prefix: "chunks/"}) {
 			chunkhash := strings.ReplaceAll(object.Key[7:], "/", "")
 			s3backuplog.DebugPrint("%s", chunkhash)
@@ -200,6 +204,7 @@ func main() {
 		s3backuplog.ErrorPrint("Failed to remove " + e.ObjectName + ", error: " + e.Err.Error())
 	}
 	// Do an integrity check to ensure that all referenced chunks exist
+	s3backuplog.InfoPrint("Running integrity check")
 	for k, v := range knownChunks {
 		_, ok := existingChunks[k]
 		if !ok {
@@ -220,7 +225,6 @@ func main() {
 
 		}
 	}
-
+	s3backuplog.InfoPrint("Finished")
 	SessionsRelease.Release()
-
 }
