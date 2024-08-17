@@ -458,11 +458,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeBinary(header, b)
 		ctime := uint64(time.Now().Unix())
 		writeBinary(header, ctime)
+		writeBinary(header, csumindex)
+
 		reserved := [4032]byte{}
 		writeBinary(header, reserved)
 
 		// TOOD: Error: wrong checksum for file 'root.pxar.didx'
-		writeBinary(header, csumindex)
 		for _, k := range s.Writers[int32(wid)].Assignments {
 			writeBinary(header, int64(chunk_size))
 			writeBinary(header, k)
