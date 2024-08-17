@@ -447,7 +447,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if strings.HasPrefix(r.RequestURI, "/dynamic_close?") && s.H2Ticket != nil && r.Method == "POST" {
 		wid, _ := strconv.ParseInt(r.URL.Query().Get("wid"), 10, 32)
-		chunk_size, _ := strconv.Atoi((r.URL.Query().Get("size")))
+		//chunk_size, _ := strconv.Atoi((r.URL.Query().Get("size")))
 		csumindex, _ := hex.DecodeString(r.URL.Query().Get("csum"))
 
 		header := new(bytes.Buffer)
@@ -464,8 +464,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeBinary(header, reserved)
 
 		// TOOD: Error: wrong checksum for file 'root.pxar.didx'
-		for _, k := range s.Writers[int32(wid)].Assignments {
-			writeBinary(header, int64(chunk_size))
+		for v, k := range s.Writers[int32(wid)].Assignments {
+			writeBinary(header, v)
 			writeBinary(header, k)
 		}
 		finalData := header.Bytes()
