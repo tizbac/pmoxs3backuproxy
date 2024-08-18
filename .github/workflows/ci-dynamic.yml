@@ -1,0 +1,50 @@
+name: test dynamic index functionality
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+      - name: Setup MinIO Server
+        uses: infleet/minio-action@v0.0.1
+        with:
+          port: "9000"
+          version: "latest"
+      - name: Setup MinIO client
+        uses: yakubique/setup-minio-cli@v1
+      - name: Setup golang
+        uses: actions/setup-go@v5
+      - name: "Create minio access"
+        run: |
+          mc alias set 'ci' 'http://127.0.0.1:9000' 'minioadmin' 'minioadmin'
+          mc mb ci/backups
+          mc admin user svcacct add ci minioadmin --json > /tmp/minio.json
+      - name: "Install proxmox backup client"
+        run: |
+          sudo apt update -y >/dev/null 2>&1
+          sudo apt install jq wget gawk -y >/dev/null 2>&1
+          sudo wget https://enterprise.proxmox.com/debian/proxmox-release-bullseye.gpg -O /etc/apt/trusted.gpg.d/proxmox-release-bookworm.gpg
+          echo "deb http://download.proxmox.com/debian/pbs-client bullseye main" | sudo tee -a /etc/apt/sources.list.d/pbs.list
+          sudo apt update -y >/dev/null 2>&1
+          sudo apt install -y proxmox-backup-client
+      - name: "Create backup"
+        run: |
+          echo "build proxy"
+          go build  tizbac/pmoxs3backuproxy/cmd/pmoxs3backuproxy
+          echo "start proxy"
+          nohup ./pmoxs3backuproxy -endpoint 127.0.0.1:9000 -bind 127.0.0.1:8007 -debug > nohup.out 2> nohup.err < /dev/null &
+          cat nohup.out
+          cat nohup.err
+          export PBS_PASSWORD=$(jq -r .secretKey < /tmp/minio.json)
+          export USERNAME=$(jq -r .accessKey < /tmp/minio.json)
+          export PBS_FINGERPRINT="55:BC:29:4B:BA:B6:A1:03:42:A9:D8:51:14:9D:BD:00:D2:2A:9C:A1:B8:4A:85:E1:AF:B2:0C:48:40:D6:CC:A4"
+          export REPO="$USERNAME@pbs@127.0.0.1:backups"
+          echo "create backup"
+          sudo -E proxmox-backup-client backup proxy.pxar:. --repository "$REPO" --backup-id dynamic
+          echo "restore backup"
+          proxmox-backup-client snapshot list --repository "$REPO"
+          proxmox-backup-client snapshot list --repository "$REPO" > /tmp/backups 2>&1 > /tmp/backups 2>&1
+          VER=$(grep dynamic /tmp/backups | awk '{print $2 }')
+          echo $VER
+          sudo -E proxmox-backup-client restore "$VER" proxy.pxar /tmp/restore/ --repository "$REPO"
+          find /tmp/restore

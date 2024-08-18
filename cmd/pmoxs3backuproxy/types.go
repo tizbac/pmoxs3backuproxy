@@ -32,11 +32,12 @@ type TicketEntry struct {
 }
 
 type Writer struct {
-	FidxName    string
-	Assignments map[int64][]byte
-	Chunksize   uint64
-	Size        uint64
-	ReuseCSUM   string
+	FidxName          string
+	Assignments       map[int64][]byte
+	DynamicChunkSizes sync.Map
+	Chunksize         uint64
+	Size              uint64
+	ReuseCSUM         string
 }
 
 type Server struct {

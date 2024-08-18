@@ -31,6 +31,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -47,6 +48,13 @@ import (
 var connectionList = make(map[string]*minio.Client)
 
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+func writeBinary(buf *bytes.Buffer, data interface{}) {
+	err := binary.Write(buf, binary.LittleEndian, data)
+	if err != nil {
+		fmt.Println("Error writing binary data:", err)
+	}
+}
 
 func RandStringBytes(n int) string {
 	b := make([]byte, n)
@@ -123,12 +131,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	s3backuplog.DebugPrint("Request:" + r.RequestURI + " Method: " + r.Method)
 	path := strings.Split(r.RequestURI, "/")
-
-	if strings.HasPrefix(r.RequestURI, "/dynamic") && s.H2Ticket != nil && r.Method == "POST" {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("not implemented"))
-		return
-	}
 
 	if len(path) >= 7 && strings.HasPrefix(r.RequestURI, "/api2/json/admin/datastore/") && auth {
 		ds := path[5]
@@ -390,6 +392,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Write(resp)
 	}
 
+	if strings.HasPrefix(r.RequestURI, "/dynamic_index?") && s.H2Ticket != nil && r.Method == "POST" {
+		fidxname := r.URL.Query().Get("archive-name")
+		wid := atomic.AddInt32(&s.CurWriter, 1)
+		resp, _ := json.Marshal(Response{
+			Data: wid,
+		})
+		s.Writers[wid] = &Writer{Assignments: make(map[int64][]byte), FidxName: fidxname}
+		w.Header().Add("Content-Type", "application/json")
+		w.Write(resp)
+	}
+
 	if strings.HasPrefix(r.RequestURI, "/fixed_close?") && s.H2Ticket != nil && r.Method == "POST" {
 		wid, _ := strconv.ParseInt(r.URL.Query().Get("wid"), 10, 32)
 		csumindex, _ := hex.DecodeString(r.URL.Query().Get("csum"))
@@ -480,14 +493,97 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			minio.CopyDestOptions{Bucket: *s.SelectedDataStore, Object: "indexed/" + r.URL.Query().Get("csum") + ".fidx"},
 			minio.CopySrcOptions{Bucket: *s.SelectedDataStore, Object: s.Snapshot.S3Prefix() + "/" + s.Writers[int32(wid)].FidxName},
 		)
-		/*_, err = s.H2Ticket.Client.PutObject(context.Background(), *s.SelectedDataStore, "indexed/"+r.URL.Query().Get("csum"), R, int64(len(outFile)), minio.PutObjectOptions{UserMetadata: map[string]string{"csum": r.URL.Query().Get("csum")}})
-		 */
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))
 			s3backuplog.ErrorPrint("%s failed to make a copy of the index on S3 bucket: %s", s.Writers[int32(wid)].FidxName, err.Error())
 			return
 		}
+	}
+
+	if strings.HasPrefix(r.RequestURI, "/dynamic_close?") && s.H2Ticket != nil && r.Method == "POST" {
+		wid, _ := strconv.ParseInt(r.URL.Query().Get("wid"), 10, 32)
+		csumindex, _ := hex.DecodeString(r.URL.Query().Get("csum"))
+
+		header := new(bytes.Buffer)
+		writeBinary(header, s3pmoxcommon.PROXMOX_INDEX_MAGIC_DYNAMIC)
+		u := uuid.New()
+		b, _ := u.MarshalBinary()
+		writeBinary(header, b)
+		ctime := uint64(time.Now().Unix())
+		writeBinary(header, ctime)
+		writeBinary(header, csumindex)
+
+		reserved := [4032]byte{}
+		writeBinary(header, reserved)
+
+		var keys []int64
+		for k := range s.Writers[int32(wid)].Assignments {
+			keys = append(keys, k)
+		}
+		sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+
+		var offset uint64 = 0
+		for _, k := range keys {
+			var origsize uint64
+			digest := hex.EncodeToString(s.Writers[int32(wid)].Assignments[k])
+			entry, ok := s.Writers[int32(wid)].DynamicChunkSizes.Load(digest)
+			if ok {
+				origsize = uint64(entry.(int))
+			} else {
+				panic("Missing information about original chunks size for digest: " + digest)
+			}
+			offset = uint64(k) + origsize
+			s3backuplog.DebugPrint("Offset: %d, Size: %d", offset, origsize)
+			writeBinary(header, offset)
+			writeBinary(header, s.Writers[int32(wid)].Assignments[k])
+		}
+
+		finalData := header.Bytes()
+
+		R := bytes.NewReader(finalData)
+		_, err := s.H2Ticket.Client.PutObject(
+			context.Background(),
+			*s.SelectedDataStore,
+			s.Snapshot.S3Prefix()+"/"+s.Writers[int32(wid)].FidxName,
+			R,
+			int64(R.Len()),
+			minio.PutObjectOptions{},
+		)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			s3backuplog.ErrorPrint("%s failed to upload to S3 bucket: %s", s.Writers[int32(wid)].FidxName, err.Error())
+			return
+		}
+	}
+
+	if strings.HasPrefix(r.RequestURI, "/dynamic_index") && s.H2Ticket != nil && r.Method == "PUT" {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			s3backuplog.ErrorPrint("Unable to read body: %s", err.Error())
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		req := AssignmentRequest{}
+		err = json.Unmarshal(body, &req)
+		if err != nil {
+			s3backuplog.ErrorPrint("Unable to unmarshal json: %s", err.Error())
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		for i := 0; i < len(req.DigestList); i++ {
+			b, err := hex.DecodeString(req.DigestList[i])
+			if err != nil {
+				s3backuplog.ErrorPrint("Unable to decode digest: %s", err.Error())
+				w.WriteHeader(http.StatusBadRequest)
+				io.WriteString(w, err.Error())
+			}
+			s.Writers[req.Wid].Assignments[int64(req.OffsetList[i])] = b
+		}
+
 	}
 
 	if strings.HasPrefix(r.RequestURI, "/fixed_index") && s.H2Ticket != nil && r.Method == "PUT" {
@@ -532,7 +628,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if strings.HasPrefix(r.RequestURI, "/fixed_chunk?") {
+	if strings.HasPrefix(r.RequestURI, "/fixed_chunk?") || strings.HasPrefix(r.RequestURI, "/dynamic_chunk?") {
 		esize, _ := strconv.Atoi(r.URL.Query().Get("encoded-size"))
 		size, _ := strconv.Atoi(r.URL.Query().Get("size"))
 		digest := r.URL.Query().Get("digest")
@@ -568,13 +664,19 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				s3backuplog.WarnPrint("Unhandled response checking for existant object: %s", errResponse.Code)
 			}
 		} else {
-			s3backuplog.DebugPrint("%s already in S3", objectStat.Key)
+			s3backuplog.DebugPrint("%s already in S3, size: %d", objectStat.Key, objectStat.Size)
 			io.ReadAll(r.Body) // we must read data from stream, otherwise backup client gets out of sync
 			known = true
 		}
 		if s.Writers[int32(wid)].Chunksize == 0 {
 			//Here chunk size is derived
 			s.Writers[int32(wid)].Chunksize = uint64(size)
+		}
+
+		// save the sizes required for offset calculation
+		if strings.HasPrefix(r.RequestURI, "/dynamic_chunk?") {
+			s3backuplog.DebugPrint("Adding digest %s to dynamic chunks list, size: %d", digest, size)
+			s.Writers[int32(wid)].DynamicChunkSizes.Store(digest, size)
 		}
 		info := ChunkUploadInfo{}
 		info.Digest = digest
