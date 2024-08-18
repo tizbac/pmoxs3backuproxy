@@ -2,6 +2,7 @@ package s3pmoxcommon
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -31,6 +32,10 @@ func ListSnapshots(c minio.Client, datastore string, returnCorrupted bool) ([]Sn
 				if len(path) == 3 {
 					if object.UserTags["protected"] == "true" {
 						existing_S.Protected = true
+					}
+					if object.UserTags["note"] != "" {
+						note, _ := base64.RawStdEncoding.DecodeString(object.UserTags["note"])
+						existing_S.Comment = string(note)
 					}
 					existing_S.Files = append(existing_S.Files, SnapshotFile{
 						Filename:  path[2],
@@ -94,6 +99,33 @@ func (S *Snapshot) InitWithForm(r *http.Request) {
 
 func (S *Snapshot) S3Prefix() string {
 	return fmt.Sprintf("backups/%s|%d|%s", S.BackupID, S.BackupTime, S.BackupType)
+}
+
+func (S *Snapshot) GetFiles(c minio.Client) {
+	for object := range c.ListObjects(
+		context.Background(), S.Datastore,
+		minio.ListObjectsOptions{Recursive: true, Prefix: S.S3Prefix()},
+	) {
+		file := SnapshotFile{}
+		path := strings.Split(object.Key, "/")
+		file.Filename = path[2]
+		file.Size = uint64(object.Size)
+		S.Files = append(S.Files, file)
+	}
+}
+
+func (S *Snapshot) ReadTags(c minio.Client) (map[string]string, error) {
+	existingTags, err := c.GetObjectTagging(
+		context.Background(),
+		S.Datastore,
+		S.S3Prefix()+"/index.json.blob",
+		minio.GetObjectTaggingOptions{},
+	)
+	if err != nil {
+		s3backuplog.ErrorPrint("Unable to get tags: %s", err.Error())
+		return nil, err
+	}
+	return existingTags.ToMap(), nil
 }
 
 func (S *Snapshot) Delete() error {
