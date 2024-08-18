@@ -451,8 +451,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		csumindex, _ := hex.DecodeString(r.URL.Query().Get("csum"))
 
 		header := new(bytes.Buffer)
-		magic := [8]byte{28, 145, 78, 165, 25, 186, 179, 205}
-		writeBinary(header, magic)
+		writeBinary(header, s3pmoxcommon.PROXMOX_INDEX_MAGIC_DYNAMIC)
 		u := uuid.New()
 		b, _ := u.MarshalBinary()
 		writeBinary(header, b)
