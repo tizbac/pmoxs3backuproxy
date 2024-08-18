@@ -171,7 +171,7 @@ func main() {
 
 		if strings.HasSuffix(object.Key, ".didx") {
 			s3backuplog.ErrorPrint("Backup dir has DIDX, which is unsupported cannot mark chunks exiting")
-			os.Exit(1)
+			continue
 			return
 		}
 	}
