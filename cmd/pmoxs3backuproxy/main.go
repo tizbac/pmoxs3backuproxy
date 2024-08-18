@@ -476,7 +476,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			entry, ok := s.Writers[int32(wid)].DynamicChunkSizes.Load(digest)
 			if ok {
 				origsize = uint64(entry.(int))
-				s.Writers[int32(wid)].DynamicChunkSizes.Delete(digest)
 			} else {
 				panic("Missing information about original chunks size for digest: " + digest)
 			}
