@@ -85,6 +85,27 @@ func ListSnapshots(c minio.Client, datastore string, returnCorrupted bool) ([]Sn
 	return resparray2, ctx.Err()
 }
 
+func GetLatestSnapshot(c minio.Client, ds string, id string) (*Snapshot, error) {
+	snapshots, err := ListSnapshots(c, ds, false)
+	if err != nil {
+		s3backuplog.ErrorPrint(err.Error())
+		return nil, err
+	}
+
+	var mostRecent = &Snapshot{}
+	for _, sl := range snapshots {
+		if (mostRecent == nil || sl.BackupTime > mostRecent.BackupTime) && id == sl.BackupID {
+			mostRecent = &sl
+		}
+	}
+
+	if mostRecent == nil {
+		return nil, nil
+	}
+
+	return mostRecent, nil
+}
+
 func (S *Snapshot) InitWithQuery(v url.Values) {
 	S.BackupID = v.Get("backup-id")
 	S.BackupTime, _ = strconv.ParseUint(v.Get("backup-time"), 10, 64)
