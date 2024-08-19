@@ -197,15 +197,30 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		if strings.HasPrefix(action, "protected") && r.Method == "GET" {
 			var ss s3pmoxcommon.Snapshot
+			var protected bool = false
 			ss.InitWithQuery(r.URL.Query())
-			ss.Protected = true
+			ss.Datastore = ds
 			w.Header().Add("Content-Type", "application/json")
+			existingTags, err := ss.ReadTags(*C.Client)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(err.Error()))
+				return
+			}
+			_, ok := existingTags["protected"]
+			if ok {
+				if existingTags["protected"] == "true" {
+					protected = true
+				}
+			}
 			resp, _ := json.Marshal(Response{
-				Data: ss,
+				Data: protected,
 			})
+			s3backuplog.ErrorPrint("%s", resp)
 			w.Write(resp)
 			return
 		}
+
 		if strings.HasPrefix(action, "protected") && r.Method == "PUT" {
 			var ss s3pmoxcommon.Snapshot
 			var tag *tags.Tags
