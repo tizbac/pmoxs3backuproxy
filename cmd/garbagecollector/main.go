@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"flag"
 	"io"
@@ -89,17 +91,18 @@ func main() {
 	for _, s := range snapshots {
 		if s.BackupTime+(uint64(*retentionDays))*86400 < uint64(time.Now().Unix()) {
 			if s.Protected == true {
-				s3backuplog.DebugPrint("Backup %s/%d is older than %d but marked as protected, skip removal.",
+				s3backuplog.InfoPrint("Backup %s,%s/%d is older than %d but marked as protected, skip removal.",
+					s.S3Prefix,
 					s.BackupID,
 					s.BackupTime,
 					*retentionDays,
 				)
 				continue
 			}
-			s3backuplog.DebugPrint("Backup %s/%d is older than %d days, deleting", s.BackupID, s.BackupTime, *retentionDays)
+			s3backuplog.InfoPrint("Backup %s is older than %d days, deleting", s.S3Prefix(), *retentionDays)
 			s.Delete()
 		} else {
-			s3backuplog.DebugPrint("Backup %s/%d is newer than %d days, keeping", s.BackupID, s.BackupTime, *retentionDays)
+			s3backuplog.InfoPrint("Backup %s is newer than %d days, keeping", s.S3Prefix(), *retentionDays)
 		}
 	}
 
@@ -123,7 +126,7 @@ func main() {
 			_, ok := knownHashes[object.ChecksumSHA256]
 			if !ok {
 				objectsCh <- object
-				s3backuplog.DebugPrint("Deleting orphaned fidx %s with S3 sha256: %s", object.Key, object.ChecksumSHA256)
+				s3backuplog.DebugPrint("Removing orphaned index for object %s with S3 sha256: %s", object.Key, object.ChecksumSHA256)
 			}
 		}
 	}()
@@ -135,6 +138,7 @@ func main() {
 	//Phase 3 Mark Used chunks
 	for object := range minioClient.ListObjects(ctx, *bucketFlag, minio.ListObjectsOptions{Recursive: true, Prefix: "backups/"}) {
 		if strings.HasSuffix(object.Key, ".fidx") {
+			s3backuplog.InfoPrint("Processing fixed index: %s", object.Key)
 			o, err := minioClient.GetObject(ctx, *bucketFlag, object.Key, minio.GetObjectOptions{})
 			if err != nil {
 				s3backuplog.ErrorPrint("Error accessing object %s: %s", object.Key, err.Error())
@@ -142,28 +146,23 @@ func main() {
 				return
 			}
 			data, err := io.ReadAll(o)
-
 			if err != nil {
 				s3backuplog.ErrorPrint("Error reading object %s: %s", object.Key, err.Error())
 				os.Exit(1)
 				return
 			}
-
 			if len(data) < 4096 {
 				s3backuplog.ErrorPrint("Error reading object %s: Too small", object.Key)
 				os.Exit(1)
 				return
 			}
-
 			data = data[4096:]
-
 			if len(data)%32 != 0 {
 				s3backuplog.ErrorPrint("Error examining object %s: Data after header length is not 32 bytes aligned", object.Key)
 				os.Exit(1)
 				return
 			}
 			for i := 0; i < len(data)/32; i++ {
-
 				val, ok := knownChunks[hex.EncodeToString(data[i*32:(i+1)*32])]
 				if !ok {
 					val = make([]string, 0)
@@ -172,33 +171,71 @@ func main() {
 				knownChunks[hex.EncodeToString(data[i*32:(i+1)*32])] = val
 			}
 		}
-
 		if strings.HasSuffix(object.Key, ".didx") {
-			s3backuplog.ErrorPrint("Backup dir has DIDX, which is unsupported cannot mark chunks exiting")
-			os.Exit(1)
-			return
+			s3backuplog.InfoPrint("Processing dynamic index: %s", object.Key)
+			o, err := minioClient.GetObject(ctx, *bucketFlag, object.Key, minio.GetObjectOptions{})
+			if err != nil {
+				s3backuplog.ErrorPrint("Error accessing object %s: %s", object.Key, err.Error())
+				os.Exit(1)
+				return
+			}
+			data, err := io.ReadAll(o)
+			if err != nil {
+				s3backuplog.ErrorPrint("Error reading object %s: %s", object.Key, err.Error())
+				os.Exit(1)
+				return
+			}
+			if len(data) < 4096 {
+				s3backuplog.ErrorPrint("Error reading object %s: Too small", object.Key)
+				os.Exit(1)
+				return
+			}
+			reader := bytes.NewReader(data[4096:])
+			var offset int64 = 0
+			for {
+				var chunk_offset = make([]byte, 8)
+				var digest_offset = make([]byte, 32)
+				reader.ReadAt(chunk_offset, offset)
+				offset += 8
+				reader.ReadAt(digest_offset, offset)
+				offset += 32
+				chunk_off := binary.LittleEndian.Uint64(chunk_offset)
+				s3backuplog.DebugPrint("Offset: %d", uint64(chunk_off))
+				val := hex.EncodeToString(digest_offset)
+				s3backuplog.DebugPrint("Digest: %s", val)
+				known, ok := knownChunks[val]
+				if !ok {
+					known = make([]string, 0)
+				}
+				known = append(known, object.Key)
+				knownChunks[val] = known
+
+				if offset == int64(reader.Len()) {
+					break
+				}
+			}
 		}
 	}
 
 	s3backuplog.InfoPrint("Enumerated %d referenced chunks", len(knownChunks))
 	//Delete orphaned chunks
 
-	s3backuplog.InfoPrint("Removing orphaned chunks")
 	objectsCh = make(chan minio.ObjectInfo)
 	go func() {
 		defer close(objectsCh)
 		for object := range minioClient.ListObjects(ctx, *bucketFlag, minio.ListObjectsOptions{Recursive: true, Prefix: "chunks/"}) {
 			chunkhash := strings.ReplaceAll(object.Key[7:], "/", "")
-			s3backuplog.DebugPrint("%s", chunkhash)
 			_, ok := knownChunks[chunkhash]
 			if !ok {
 				objectsCh <- object
 			} else {
+				s3backuplog.DebugPrint("Chunk still referenced: %s, skip removal", chunkhash)
 				existingChunks[chunkhash] = true
 			}
 		}
 	}()
 
+	s3backuplog.InfoPrint("Removing orphaned chunks")
 	errorCh = minioClient.RemoveObjects(context.Background(), *bucketFlag, objectsCh, minio.RemoveObjectsOptions{})
 	for e := range errorCh {
 		s3backuplog.ErrorPrint("Failed to remove " + e.ObjectName + ", error: " + e.Err.Error())
