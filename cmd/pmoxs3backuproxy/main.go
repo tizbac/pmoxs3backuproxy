@@ -34,6 +34,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 	"tizbac/pmoxs3backuproxy/internal/s3backuplog"
@@ -46,6 +47,8 @@ import (
 )
 
 var connectionList = make(map[string]*minio.Client)
+
+var writer_mux sync.RWMutex
 
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
@@ -387,7 +390,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Data: wid,
 		})
 
+		writer_mux.Lock()
 		s.Writers[wid] = &Writer{Assignments: make(map[int64][]byte), FidxName: fidxname, Size: S, ReuseCSUM: reusecsum}
+		writer_mux.Unlock()
 		w.Header().Add("Content-Type", "application/json")
 		w.Write(resp)
 	}
@@ -398,7 +403,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		resp, _ := json.Marshal(Response{
 			Data: wid,
 		})
+		writer_mux.Lock()
 		s.Writers[wid] = &Writer{Assignments: make(map[int64][]byte), FidxName: fidxname}
+		writer_mux.Unlock()
 		w.Header().Add("Content-Type", "application/json")
 		w.Write(resp)
 	}
