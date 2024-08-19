@@ -27,7 +27,7 @@ jobs:
           echo "deb http://download.proxmox.com/debian/pbs-client bullseye main" | sudo tee -a /etc/apt/sources.list.d/pbs.list
           sudo apt update -y >/dev/null 2>&1
           sudo apt install -y proxmox-backup-client
-      - name: "Create backup"
+      - name: "Create backup and test restore"
         run: |
           echo "build proxy"
           go build  tizbac/pmoxs3backuproxy/cmd/pmoxs3backuproxy
@@ -38,13 +38,18 @@ jobs:
           export PBS_PASSWORD=$(jq -r .secretKey < /tmp/minio.json)
           export USERNAME=$(jq -r .accessKey < /tmp/minio.json)
           export PBS_FINGERPRINT="55:BC:29:4B:BA:B6:A1:03:42:A9:D8:51:14:9D:BD:00:D2:2A:9C:A1:B8:4A:85:E1:AF:B2:0C:48:40:D6:CC:A4"
-          export REPO="$USERNAME@pbs@127.0.0.1:backups"
+          export PBS_REPOSITORY="$USERNAME@pbs@127.0.0.1:backups"
           echo "create backup"
-          sudo -E proxmox-backup-client backup proxy.pxar:. --repository "$REPO" --backup-id dynamic
+          sudo -E proxmox-backup-client backup proxy.pxar:.  --backup-id dynamic
           echo "restore backup"
-          proxmox-backup-client snapshot list --repository "$REPO"
-          proxmox-backup-client snapshot list --repository "$REPO" > /tmp/backups 2>&1 > /tmp/backups 2>&1
+          proxmox-backup-client snapshot list
+          proxmox-backup-client snapshot list > /tmp/backups 2>&1 > /tmp/backups 2>&1
           VER=$(grep dynamic /tmp/backups | awk '{print $2 }')
           echo $VER
-          sudo -E proxmox-backup-client restore "$VER" proxy.pxar /tmp/restore/ --repository "$REPO"
-          find /tmp/restore
+          sudo -E proxmox-backup-client restore "$VER" proxy.pxar /tmp/restore/
+          find /tmp/restore > /dev/null
+          echo "check notes api"
+          sudo -E proxmox-backup-client snapshot notes update $VER mynote
+          sudo -E proxmox-backup-client snapshot notes show $VER | grep -q mynote
+          echo "check files api"
+          sudo -E proxmox-backup-client snapshot files $VER | grep -q "proxy.pxar"
