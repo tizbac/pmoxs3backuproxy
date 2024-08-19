@@ -572,24 +572,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return true
 		})
 
-		M := make(map[string]uint64)
 		var keys []int64
 		for k := range s.Writers[int32(wid)].Assignments {
 			keys = append(keys, k)
-			digest := hex.EncodeToString(s.Writers[int32(wid)].Assignments[k])
-			entry, ok := s.Writers[int32(wid)].DynamicChunkSizes.Load(digest)
-			var origsize uint64
-			if ok {
-				origsize = uint64(entry.(uint64))
-			} else {
-				panic(fmt.Sprintf("Missing size info for chunk %s", digest))
-			}
-			M[digest] = origsize
 		}
 		sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
 
 		var offset uint64 = 0
 
+		jsonMap := make(map[string]uint64)
 		for _, k := range keys {
 			var origsize uint64
 			digest := hex.EncodeToString(s.Writers[int32(wid)].Assignments[k])
@@ -604,6 +595,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s3backuplog.DebugPrint("Offset: %d, Size: %d", offset, origsize)
 			writeBinary(header, offset)
 			writeBinary(header, s.Writers[int32(wid)].Assignments[k])
+			jsonMap[digest] = origsize
 		}
 
 		finalData := header.Bytes()
@@ -626,7 +618,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		chunksizeinfo, _ := json.Marshal(M)
+		chunksizeinfo, _ := json.Marshal(jsonMap)
 
 		R = bytes.NewReader(chunksizeinfo)
 		_, err = s.H2Ticket.Client.PutObject(
