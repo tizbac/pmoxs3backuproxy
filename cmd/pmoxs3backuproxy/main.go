@@ -696,8 +696,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte(err.Error()))
 			s3backuplog.ErrorPrint("%s failed to upload blob to S3 bucket: %s", blobname, err.Error())
 		}
-
 	}
+
+	if strings.HasPrefix(r.RequestURI, "/speedtest") && s.H2Ticket != nil {
+		/** Speedtest just doesnt nothing at the moment **/
+		w.WriteHeader(http.StatusOK)
+	}
+
 	/* End of HTTP2 Backup API */
 
 	/* HTTP2 Restore API */
@@ -865,8 +870,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			connectionList[username] = minioClient
 		}
 
-		te.Client = connectionList[username]
+		_, err := connectionList[username].ListBuckets(context.Background())
+		if err != nil {
+			w.WriteHeader(http.StatusForbidden)
+			s3backuplog.ErrorPrint("Failed to list buckets: %s", err.Error())
+			w.Write([]byte(err.Error()))
+			return
+		}
 
+		te.Client = connectionList[username]
 		s.Auth.Store(ticket.Ticket, te)
 
 		respbody, _ := json.Marshal(resp)
