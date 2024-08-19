@@ -339,6 +339,30 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.RequestURI, "/finish") && s.H2Ticket != nil && r.Method == "POST" {
 		s.Finished = true
 	}
+	if strings.HasPrefix(r.RequestURI, "/previous_backup_time") && s.H2Ticket != nil && r.Method == "GET" {
+		snapshots, err := s3pmoxcommon.ListSnapshots(*s.H2Ticket.Client, *s.SelectedDataStore, false)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			io.WriteString(w, err.Error())
+			s3backuplog.ErrorPrint(err.Error())
+			return
+		}
+
+		var mostRecent *s3pmoxcommon.Snapshot
+		for _, sl := range snapshots {
+			if (mostRecent == nil || sl.BackupTime > mostRecent.BackupTime) && s.Snapshot.BackupID == sl.BackupID {
+				mostRecent = &sl
+			}
+		}
+
+		if mostRecent == nil {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		io.WriteString(w, fmt.Sprintf("%d", mostRecent.BackupTime))
+	}
+
 	if strings.HasPrefix(r.RequestURI, "/previous?") && s.H2Ticket != nil && r.Method == "GET" {
 		s3backuplog.InfoPrint("Handling get request for previous (%s)", r.URL.Query().Get("archive-name"))
 		snapshots, err := s3pmoxcommon.ListSnapshots(*s.H2Ticket.Client, *s.SelectedDataStore, false)
@@ -375,16 +399,41 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					io.WriteString(w, err.Error())
 					return
 				}
-				s, err := obj.Stat()
+				stat, err := obj.Stat()
 				if err != nil {
 					w.WriteHeader(http.StatusNotFound)
 					s3backuplog.ErrorPrint(err.Error() + " " + mostRecent.S3Prefix() + "/" + f.Filename)
 					io.WriteString(w, err.Error())
 					return
 				}
-				w.Header().Add("Content-Length", fmt.Sprintf("%d", s.Size))
+
+				objcsjson, err := s.H2Ticket.Client.GetObject(
+					context.Background(),
+					*s.SelectedDataStore,
+					mostRecent.S3Prefix()+"/"+f.Filename+".csjson",
+					minio.GetObjectOptions{},
+				)
+				if err == nil {
+					_, err := objcsjson.Stat()
+					if err == nil {
+						s3backuplog.DebugPrint("Found JSON Chunk size index loading it")
+						data, err := io.ReadAll(objcsjson)
+						if err == nil {
+							M := make(map[string]uint64)
+							json.Unmarshal(data, &M)
+							s3backuplog.DebugPrint("Loaded %d sizes", len(M))
+							for k, v := range M {
+								s.KnownChunksSizes.Store(k, v)
+							}
+						}
+
+					}
+				}
+
+				w.Header().Add("Content-Length", fmt.Sprintf("%d", stat.Size))
 				w.WriteHeader(http.StatusOK)
 				io.Copy(w, obj)
+
 				return
 			}
 		}
@@ -532,23 +581,41 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reserved := [4032]byte{}
 		writeBinary(header, reserved)
 
+		//Load globally known chunk sizes
+		s.KnownChunksSizes.Range(func(key, value any) bool {
+			s.Writers[int32(wid)].DynamicChunkSizes.Store(key, value)
+			return true
+		})
+
+		M := make(map[string]uint64)
 		var keys []int64
 		for k := range s.Writers[int32(wid)].Assignments {
 			keys = append(keys, k)
+			digest := hex.EncodeToString(s.Writers[int32(wid)].Assignments[k])
+			entry, ok := s.Writers[int32(wid)].DynamicChunkSizes.Load(digest)
+			var origsize uint64
+			if ok {
+				origsize = uint64(entry.(uint64))
+			} else {
+				panic(fmt.Sprintf("Missing size info for chunk %s", digest))
+			}
+			M[digest] = origsize
 		}
 		sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
 
 		var offset uint64 = 0
+
 		for _, k := range keys {
 			var origsize uint64
 			digest := hex.EncodeToString(s.Writers[int32(wid)].Assignments[k])
 			entry, ok := s.Writers[int32(wid)].DynamicChunkSizes.Load(digest)
 			if ok {
-				origsize = uint64(entry.(int))
+				origsize = uint64(entry.(uint64))
 			} else {
-				panic("Missing information about original chunks size for digest: " + digest)
+				panic(fmt.Sprintf("Missing size info for chunk %s", digest))
 			}
 			offset = uint64(k) + origsize
+
 			s3backuplog.DebugPrint("Offset: %d, Size: %d", offset, origsize)
 			writeBinary(header, offset)
 			writeBinary(header, s.Writers[int32(wid)].Assignments[k])
@@ -566,12 +633,35 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				UserMetadata: map[string]string{"csum": r.URL.Query().Get("csum")},
 			},
 		)
+
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))
 			s3backuplog.ErrorPrint("%s failed to upload to S3 bucket: %s", s.Writers[int32(wid)].FidxName, err.Error())
 			return
 		}
+
+		chunksizeinfo, _ := json.Marshal(M)
+
+		R = bytes.NewReader(chunksizeinfo)
+		_, err = s.H2Ticket.Client.PutObject(
+			context.Background(),
+			*s.SelectedDataStore,
+			s.Snapshot.S3Prefix()+"/"+s.Writers[int32(wid)].FidxName+".csjson",
+			R,
+			int64(R.Len()),
+			minio.PutObjectOptions{
+				UserMetadata: map[string]string{"csum": r.URL.Query().Get("csum")},
+			},
+		)
+
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			s3backuplog.ErrorPrint("%s failed to upload to S3 bucket: %s", s.Writers[int32(wid)].FidxName, err.Error())
+			return
+		}
+
 	}
 
 	if strings.HasPrefix(r.RequestURI, "/dynamic_index") && s.H2Ticket != nil && r.Method == "PUT" {
@@ -582,6 +672,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte(err.Error()))
 			return
 		}
+		fmt.Println(string(body))
 		req := AssignmentRequest{}
 		err = json.Unmarshal(body, &req)
 		if err != nil {
@@ -646,7 +737,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if strings.HasPrefix(r.RequestURI, "/fixed_chunk?") || strings.HasPrefix(r.RequestURI, "/dynamic_chunk?") {
 		esize, _ := strconv.Atoi(r.URL.Query().Get("encoded-size"))
-		size, _ := strconv.Atoi(r.URL.Query().Get("size"))
+		size, _ := strconv.ParseUint(r.URL.Query().Get("size"), 10, 64)
 		digest := r.URL.Query().Get("digest")
 		wid, _ := strconv.ParseInt(r.URL.Query().Get("wid"), 10, 32)
 		s3name := fmt.Sprintf("chunks/%s/%s/%s", digest[0:2], digest[2:4], digest[4:])
