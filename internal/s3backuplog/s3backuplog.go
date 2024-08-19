@@ -11,6 +11,7 @@ var Gdebug = false
 
 func EnableDebug() {
 	Gdebug = true
+	log.SetFlags(log.Ldate | log.Lmicroseconds)
 }
 
 func DebugPrint(fmt string, args ...interface{}) {
