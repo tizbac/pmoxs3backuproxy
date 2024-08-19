@@ -55,7 +55,7 @@ const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 func writeBinary(buf *bytes.Buffer, data interface{}) {
 	err := binary.Write(buf, binary.LittleEndian, data)
 	if err != nil {
-		fmt.Println("Error writing binary data:", err)
+		panic(fmt.Sprintf("Error writing binary data: %s", err))
 	}
 }
 
@@ -657,7 +657,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte(err.Error()))
 			return
 		}
-		fmt.Println(string(body))
 		req := AssignmentRequest{}
 		err = json.Unmarshal(body, &req)
 		if err != nil {
