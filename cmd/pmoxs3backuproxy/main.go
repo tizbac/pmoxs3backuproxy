@@ -562,7 +562,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.Snapshot.S3Prefix()+"/"+s.Writers[int32(wid)].FidxName,
 			R,
 			int64(R.Len()),
-			minio.PutObjectOptions{},
+			minio.PutObjectOptions{
+				UserMetadata: map[string]string{"csum": r.URL.Query().Get("csum")},
+			},
 		)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
