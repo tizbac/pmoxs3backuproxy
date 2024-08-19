@@ -872,6 +872,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		_, err := connectionList[username].ListBuckets(context.Background())
 		if err != nil {
+			delete(connectionList, username)
 			w.WriteHeader(http.StatusForbidden)
 			s3backuplog.ErrorPrint("Failed to list buckets: %s", err.Error())
 			w.Write([]byte(err.Error()))
