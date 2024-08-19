@@ -93,7 +93,11 @@ The on PVE add proxmox backup server storage
 127.0.0.1:8007 
 
 Use
+
+```
 55:BC:29:4B:BA:B6:A1:03:42:A9:D8:51:14:9D:BD:00:D2:2A:9C:A1:B8:4A:85:E1:AF:B2:0C:48:40:D6:CC:A4
+```
+
 as fingerprint, if you intend to bind on public network with potential MITM,
 please regenerate server certificate !!
 
@@ -129,11 +133,11 @@ For increased security, you can add the following security parameters without af
 
 # Notes
 
-Garbage collector process ( scheduled with crontab ) must absolutely run on same machine as the proxy for locking to work!!
-Garbage collector will also check for integrity ( only the presence of all referenced chunks ) , if a backup is found to be broken, it will not be deleted and retention will be honored, but it will be marked corrupted, so next backup from PVE will be non incremental and will recreate missing chunk if needed
-Also corrupted backup will not appear in PVE backup list
+Garbage collector process ( scheduled with crontab ) must absolutely run on
+same machine as the proxy for locking to work!
 
-Does currently only work for pbs VM backups, not with proxmox-backup-client
-https://github.com/tizbac/pmoxs3backuproxy/issues/2 
-Does not currently support retention and garbage collection
-https://github.com/tizbac/pmoxs3backuproxy/issues/16 , suggestions on implementation welcome
+Garbage collector will also check for integrity ( only the presence of all
+referenced chunks ), if a backup is found to be broken, it will not be deleted
+and retention will be honored, but it will be marked corrupted, so next backup
+from PVE will be non incremental and will recreate missing chunk if needed.
+Corrupted backup will not appear in PVE backup list
