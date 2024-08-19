@@ -55,7 +55,7 @@ const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 func writeBinary(buf *bytes.Buffer, data interface{}) {
 	err := binary.Write(buf, binary.LittleEndian, data)
 	if err != nil {
-		fmt.Println("Error writing binary data:", err)
+		panic(fmt.Sprintf("Error writing binary data: %s", err))
 	}
 }
 
@@ -340,21 +340,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.Finished = true
 	}
 	if strings.HasPrefix(r.RequestURI, "/previous_backup_time") && s.H2Ticket != nil && r.Method == "GET" {
-		snapshots, err := s3pmoxcommon.ListSnapshots(*s.H2Ticket.Client, *s.SelectedDataStore, false)
+		mostRecent, err := s3pmoxcommon.GetLatestSnapshot(
+			*s.H2Ticket.Client,
+			*s.SelectedDataStore,
+			s.Snapshot.BackupID,
+		)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			io.WriteString(w, err.Error())
-			s3backuplog.ErrorPrint(err.Error())
 			return
 		}
-
-		var mostRecent *s3pmoxcommon.Snapshot
-		for _, sl := range snapshots {
-			if (mostRecent == nil || sl.BackupTime > mostRecent.BackupTime) && s.Snapshot.BackupID == sl.BackupID {
-				mostRecent = &sl
-			}
-		}
-
 		if mostRecent == nil {
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -365,21 +360,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if strings.HasPrefix(r.RequestURI, "/previous?") && s.H2Ticket != nil && r.Method == "GET" {
 		s3backuplog.InfoPrint("Handling get request for previous (%s)", r.URL.Query().Get("archive-name"))
-		snapshots, err := s3pmoxcommon.ListSnapshots(*s.H2Ticket.Client, *s.SelectedDataStore, false)
+		mostRecent, err := s3pmoxcommon.GetLatestSnapshot(
+			*s.H2Ticket.Client,
+			*s.SelectedDataStore,
+			s.Snapshot.BackupID,
+		)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			io.WriteString(w, err.Error())
-			s3backuplog.ErrorPrint(err.Error())
 			return
 		}
-
-		var mostRecent *s3pmoxcommon.Snapshot
-		for _, sl := range snapshots {
-			if (mostRecent == nil || sl.BackupTime > mostRecent.BackupTime) && s.Snapshot.BackupID == sl.BackupID {
-				mostRecent = &sl
-			}
-		}
-
 		if mostRecent == nil {
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -426,18 +416,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 								s.KnownChunksSizes.Store(k, v)
 							}
 						}
-
 					}
 				}
-
 				w.Header().Add("Content-Length", fmt.Sprintf("%d", stat.Size))
 				w.WriteHeader(http.StatusOK)
 				io.Copy(w, obj)
-
 				return
 			}
 		}
-
 		s3backuplog.WarnPrint("File %s not found in snapshot %s (%s)", r.URL.Query().Get("archive-name"), mostRecent.S3Prefix(), mostRecent.Files)
 		w.WriteHeader(http.StatusNotFound)
 		return
@@ -453,7 +439,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		resp, _ := json.Marshal(Response{
 			Data: wid,
 		})
-
 		writer_mux.Lock()
 		s.Writers[wid] = &Writer{Assignments: make(map[int64][]byte), FidxName: fidxname, Size: S, ReuseCSUM: reusecsum}
 		writer_mux.Unlock()
@@ -672,7 +657,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte(err.Error()))
 			return
 		}
-		fmt.Println(string(body))
 		req := AssignmentRequest{}
 		err = json.Unmarshal(body, &req)
 		if err != nil {
