@@ -1,0 +1,4 @@
+-j test
+-P ubuntu-latest=-self-hosted
+--rm
+--no-cache-server
