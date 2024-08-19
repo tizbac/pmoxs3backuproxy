@@ -406,8 +406,19 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.RequestURI, "/fixed_close?") && s.H2Ticket != nil && r.Method == "POST" {
 		wid, _ := strconv.ParseInt(r.URL.Query().Get("wid"), 10, 32)
 		csumindex, _ := hex.DecodeString(r.URL.Query().Get("csum"))
-		outFile := make([]byte, 0)
 		//FIDX format is documented on Proxmox Backup docs pdf
+
+		outFile := new(bytes.Buffer)
+		writeBinary(outFile, s3pmoxcommon.PROXMOX_INDEX_MAGIC_STATIC)
+		u := uuid.New()
+		b, _ := u.MarshalBinary()
+		writeBinary(outFile, b)
+		writeBinary(outFile, uint64(time.Now().Unix()))
+		writeBinary(outFile, csumindex)
+		writeBinary(outFile, uint64(s.Writers[int32(wid)].Size))
+		writeBinary(outFile, uint64(s.Writers[int32(wid)].Chunksize))
+		reserved := [4016]byte{}
+
 		if s.Writers[int32(wid)].ReuseCSUM != "" {
 			//In that case we load from S3 the specified reuse index
 			obj, err := s.H2Ticket.Client.GetObject(
@@ -422,39 +433,22 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				s3backuplog.ErrorPrint("Failed to find index %s to be reused: %s", s.Writers[int32(wid)].ReuseCSUM, err.Error())
 				return
 			}
-			outFile, err = io.ReadAll(obj)
+			current, err := io.ReadAll(obj)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				w.Write([]byte(err.Error()))
 				s3backuplog.ErrorPrint("Failed to find index %s to be reused: %s", s.Writers[int32(wid)].ReuseCSUM, err.Error())
 				return
 			}
-			//Chunk size and size cannot be known since incremental may potentially upload 0 chunks, so we take them from reused index
-			s.Writers[int32(wid)].Size = binary.LittleEndian.Uint64(outFile[64:72])
-			s.Writers[int32(wid)].Chunksize = binary.NativeEndian.Uint64(outFile[72:80])
-
+			s.Writers[int32(wid)].Size = binary.LittleEndian.Uint64(current[64:72])
+			s.Writers[int32(wid)].Chunksize = binary.NativeEndian.Uint64(current[72:80])
 			s3backuplog.DebugPrint("Reusing old index")
+			writeBinary(outFile, current)
 		} else {
-			//In that case a new index is allocated, 4096 is the header, then size/chunksize blocks follow of 32 bytes ( chunk digest sha 256 )
-			outFile = make([]byte, 4096+32*len(s.Writers[int32(wid)].Assignments))
-			outFile[0], outFile[1], outFile[2], outFile[3], outFile[4], outFile[5], outFile[6], outFile[7] = 47, 127, 65, 237, 145, 253, 15, 205 //Header magic as per PBS docs
-			//Chunksize in that case is derived from at least one chunk having been uploaded
-			sl := binary.LittleEndian.AppendUint64(make([]byte, 0), s.Writers[int32(wid)].Size)
-			copy(outFile[64:72], sl)
-			sl = binary.LittleEndian.AppendUint64(make([]byte, 0), s.Writers[int32(wid)].Chunksize)
-			copy(outFile[72:80], sl)
-
+			writeBinary(outFile, reserved)
 		}
-		copy(outFile[32:64], csumindex[0:32]) //Checksum is almost never the same , so it is changed with new backup
-		u := uuid.New()                       //Generate a new uuid too
-		b, _ := u.MarshalBinary()
-		copy(outFile[8:24], b)
-		sl := binary.LittleEndian.AppendUint64(make([]byte, 0), uint64(time.Now().Unix()))
-		copy(outFile[24:32], sl)
-		k := uint64(0)
-
 		for i := uint64(0); i < s.Writers[int32(wid)].Size; i += s.Writers[int32(wid)].Chunksize {
-			val, ok := s.Writers[int32(wid)].Assignments[int64(i)]
+			digest, ok := s.Writers[int32(wid)].Assignments[int64(i)]
 			if !ok {
 				if s.Writers[int32(wid)].ReuseCSUM == "" {
 					w.WriteHeader(http.StatusInternalServerError)
@@ -463,19 +457,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			} else {
-				//4096 bytes is the header, being each element 32 bytes (sha256) after the header
-				copy(outFile[4096+32*k:4096+32*k+32], val)
+				writeBinary(outFile, digest)
 			}
-
-			k++
 		}
-		R := bytes.NewReader(outFile)
+
+		finalData := outFile.Bytes()
+		R := bytes.NewReader(finalData)
 		_, err := s.H2Ticket.Client.PutObject(
 			context.Background(),
 			*s.SelectedDataStore,
 			s.Snapshot.S3Prefix()+"/"+s.Writers[int32(wid)].FidxName,
 			R,
-			int64(len(outFile)),
+			int64(len(finalData)),
 			minio.PutObjectOptions{
 				UserMetadata: map[string]string{"csum": r.URL.Query().Get("csum")},
 			},
@@ -540,7 +533,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		finalData := header.Bytes()
-
 		R := bytes.NewReader(finalData)
 		_, err := s.H2Ticket.Client.PutObject(
 			context.Background(),
