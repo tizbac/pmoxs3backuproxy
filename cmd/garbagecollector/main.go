@@ -100,7 +100,7 @@ func main() {
 				continue
 			}
 			s3backuplog.InfoPrint("Backup %s is older than %d days, deleting", s.S3Prefix(), *retentionDays)
-			s.Delete()
+			s.Delete(*minioClient)
 		} else {
 			s3backuplog.InfoPrint("Backup %s is newer than %d days, keeping", s.S3Prefix(), *retentionDays)
 		}

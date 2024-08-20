@@ -48,8 +48,7 @@ func (s *Server) backup(sock net.Conn, C TicketEntry, ds string, S s3pmoxcommon.
 	srv.ServeConn(sock, &http2.ServeConnOpts{Handler: snew})
 	if !snew.Finished { //Incomplete backup because connection died pve side, remove from S3
 		S.Datastore = ds
-		S.C = C.Client
-		if err := S.Delete(); err != nil {
+		if err := S.Delete(*C.Client); err != nil {
 			s3backuplog.ErrorPrint("Failed to remove incomplete backup: " + err.Error())
 		} else {
 			s3backuplog.WarnPrint("Removed incomplete backup %s", snew.Snapshot.S3Prefix())

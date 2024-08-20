@@ -1,6 +1,8 @@
 /*
 PMOX S3 Backup Proxy
-Copyright (C) 2024  Tiziano Bacocco
+
+	Copyright (C) 2024  Tiziano Bacocco
+	Copyright (C) 2024  Michael Ablassmeier <abi@grinser.de>
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -270,10 +272,72 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			//Seems to not be supported by minio fecthing used size so we return dummy values to make all look fine
 			resp, _ := json.Marshal(Response{
 				Data: DataStoreStatus{
-					Used:  10000,
-					Avail: 10000000,
-					Total: 10000 + 10000000,
+					Used:    10000,
+					Avail:   10000000,
+					Total:   10000 + 10000000,
+					Counts:  0,
+					GCState: true, // todo
 				},
+			})
+			w.Header().Add("Content-Type", "application/json")
+			w.Write(resp)
+		}
+
+		if strings.HasPrefix(action, "namespace") {
+			/** We dont have namespaces implemented now, so we just return
+			 *	the default namespace
+			**/
+			namespaces := make([]Namespace, 0)
+			namespaces = append(namespaces, Namespace{Name: "Root"})
+			resp, _ := json.Marshal(Response{
+				Data: namespaces,
+			})
+			w.Header().Add("Content-Type", "application/json")
+			w.Write(resp)
+		}
+
+		if strings.HasPrefix(action, "groups?") {
+			/**
+				Return a backup group (usually for a given namespace)
+			**/
+			ns := r.URL.Query().Get("ns")
+			s3backuplog.DebugPrint("Request for namespace: %s", ns)
+			snapshots, _ := s3pmoxcommon.ListSnapshots(*C.Client, ds, false)
+			groups := make([]Group, 0)
+			for _, snap := range snapshots {
+				var filelist []string
+				for _, file := range snap.Files {
+					filelist = append(filelist, file.Filename)
+				}
+				g := Group{
+					Count:      1,
+					BackupID:   snap.BackupID,
+					BackupTime: snap.BackupTime,
+					Files:      filelist,
+					BackupType: snap.BackupType,
+					/* During proxmox-backup-manager pull the sync job expects
+					 * a size field, otherwise it asumes the backup to be active
+					 * and ignores it during sync
+					 **/
+					Size: 200,
+				}
+				var exists bool = false
+				for k := range groups {
+					/**
+					 * The group entry already exists, so just update it.
+					 **/
+					if groups[k].BackupType == g.BackupType && groups[k].BackupID == g.BackupID {
+						groups[k].Count += 1
+						groups[k].BackupTime = g.BackupTime
+						exists = true
+					}
+				}
+				if !exists {
+					groups = append(groups, g)
+				}
+			}
+			resp, _ := json.Marshal(Response{
+				Data: groups,
 			})
 			w.Header().Add("Content-Type", "application/json")
 			w.Write(resp)
@@ -306,9 +370,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				var ss s3pmoxcommon.Snapshot
 				ss.InitWithForm(r)
 				ss.Datastore = ds
-				ss.C = C.Client
 				s3backuplog.InfoPrint("Removing snapshot: %s as requested by user", ss.S3Prefix())
-				if err := ss.Delete(); err == nil {
+				if err := ss.Delete(*C.Client); err == nil {
 					w.Header().Add("Content-Type", "application/json")
 					resp, _ := json.Marshal(Response{
 						Data: ss,
@@ -321,13 +384,41 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if r.Method == "GET" {
-				resparray, err := s3pmoxcommon.ListSnapshots(*C.Client, ds, false)
+				/**
+				 * Based on the request, return either a list of
+				 * snapshots or a specific one
+				 **/
+				var snapshots []s3pmoxcommon.Snapshot
+				var err error
+				var returned []s3pmoxcommon.Snapshot
+
+				// single snapshot requested without datastore
+				id := r.URL.Query().Get("backup-id")
+				bcktype := r.URL.Query().Get("backup-type")
+
+				snapshots, err = s3pmoxcommon.ListSnapshots(*C.Client, ds, false)
 				if err != nil {
 					w.WriteHeader(http.StatusInternalServerError)
 					io.WriteString(w, err.Error())
 				}
+
+				/**
+				 * Go through all snapshos and return the right one
+				 **/
+				if id != "" {
+					for k := range snapshots {
+						if snapshots[k].BackupID == id && snapshots[k].BackupType == bcktype {
+							returned = append(returned, snapshots[k])
+						}
+					}
+				}
+
+				if len(returned) > 0 {
+					snapshots = returned
+				}
+
 				resp, _ := json.Marshal(Response{
-					Data: resparray,
+					Data: snapshots,
 				})
 				w.Header().Add("Content-Type", "application/json")
 				w.Write(resp)
@@ -862,12 +953,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	/* End of HTTP 2 Restore API */
 
 	if r.RequestURI == "/api2/json/admin/datastore" && r.Method == "GET" && auth {
-		/*for name, values := range r.Header {
-			// Loop over all values for the name.
-			for _, value := range values {
-				fmt.Println(name, value)
-			}
-		}*/
 		s3backuplog.DebugPrint("List buckets")
 		bckts, err := C.Client.ListBuckets(context.Background())
 		if err != nil {
@@ -922,12 +1007,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			json.Unmarshal(body, &req)
 		} else {
 			err := r.ParseForm()
-			for name, values := range r.Header {
-				// Loop over all values for the name.
-				for _, value := range values {
-					s3backuplog.DebugPrint("%s=%s", name, value)
-				}
-			}
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 				s3backuplog.ErrorPrint("Failed to parse form: %s", err.Error())
