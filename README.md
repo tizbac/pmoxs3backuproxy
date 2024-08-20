@@ -4,7 +4,7 @@
 
 - [Working Features](#working-features)
 - [Known issues](#known-issues)
-  - [S3 Performance](#s3-performance)
+  - [S3 Performance / Considerations](#s3-performance--considerations)
   - [Sizes shown in PVE frontend](#sizes-shown-in-pve-frontend)
 - [Usage](#usage)
 - [Quickstart](#quickstart)
@@ -26,18 +26,27 @@ Note: Garbage collector is experimental, use with extreme caution
 The following features are currently implemented:
 
  * Configure proxy in PVE and use it for both CT and VM backups (full and incremental)
- * Restore functionality (VM restore, mount)
+ * Restore functionality (VM restore, mount, map)
  * Basic PVE UI integration: adding notes, setting the protection flag,
    removing backups, showing configuration.
  * File backup/restore/mount via proxmox-backup-client (full and incremental)
 
 # Known issues
-## S3 Performance
+## S3 Performance / Considerations
 
-Both the proxmox VM backup as well as the proxmox backup client will split the
-backups into many small chunks, S3 is not known to perform very well on many
-small files. The bigger your bucket gets, the more likely you will see
-Performance issues or cost peaks during restores. Feedback welcome!
+Both the proxmox VM and file backup client will split the backups into many
+small chunks, S3 is not known to perform well upon reading many small files.
+
+The bigger your bucket gets/your backups are, the more likely you will see
+performance issues during restore.
+
+Also think about cost peaks for object read operations. The proxmox backup
+clients will request required chunks sequentially, there is currently no
+way to optimize this in the proxy.
+
+You should consider twice if you want to make the S3 backend your primary
+backup storage. For local S3 instances with S3 compatible API (ceph, minio) the
+performance depends largely on your setup.
 
 ## Sizes shown in PVE frontend
 
