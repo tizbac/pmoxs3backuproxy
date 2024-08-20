@@ -974,15 +974,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			connectionList[username] = minioClient
-		}
 
-		_, err := connectionList[username].ListBuckets(context.Background())
-		if err != nil {
-			delete(connectionList, username)
-			w.WriteHeader(http.StatusForbidden)
-			s3backuplog.ErrorPrint("Failed to list buckets: %s", err.Error())
-			w.Write([]byte(err.Error()))
-			return
+			_, listerr := connectionList[username].ListBuckets(context.Background())
+			if listerr != nil {
+				delete(connectionList, username)
+				w.WriteHeader(http.StatusForbidden)
+				s3backuplog.ErrorPrint("Failed to list buckets: %s", listerr.Error())
+				w.Write([]byte(listerr.Error()))
+				return
+			}
+
 		}
 
 		te.Client = connectionList[username]
