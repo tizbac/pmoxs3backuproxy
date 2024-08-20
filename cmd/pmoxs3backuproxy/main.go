@@ -370,7 +370,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			io.WriteString(w, err.Error())
 			return
 		}
+
 		if mostRecent == nil {
+			s3backuplog.DebugPrint("No previous snapshot found")
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -424,7 +426,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		s3backuplog.WarnPrint("File %s not found in snapshot %s (%s)", r.URL.Query().Get("archive-name"), mostRecent.S3Prefix(), mostRecent.Files)
+		s3backuplog.WarnPrint(
+			"File %s not found in snapshot %s (%s)",
+			r.URL.Query().Get("archive-name"),
+			mostRecent.S3Prefix(),
+			mostRecent.Files,
+		)
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
