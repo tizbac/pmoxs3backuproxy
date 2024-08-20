@@ -32,7 +32,7 @@ The following features are currently implemented:
  * File backup/restore/mount via proxmox-backup-client (full and incremental)
 
 # Known issues
-## S3 Performance / Considerations
+## S3 Restore Performance / Considerations
 
 Both the proxmox VM and file backup client will split the backups into many
 small chunks, S3 is not known to perform well upon reading many small files.
@@ -47,6 +47,11 @@ way to optimize this in the proxy.
 You should consider twice if you want to make the S3 backend your primary
 backup storage. For local S3 instances with S3 compatible API (ceph, minio) the
 performance depends largely on your setup.
+
+As with proxmox 8.2, a feature called "Backup fleecing" was introduced, [See
+release notes](https://pve.proxmox.com/wiki/Roadmap#Proxmox_VE_8.2) which
+enhances the proxmox backup for cases where the backup storage is slow to
+respond, which may be the case for hosted S3 over slow network connections.
 
 ## Sizes shown in PVE frontend
 
