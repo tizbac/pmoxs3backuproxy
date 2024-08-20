@@ -2,10 +2,16 @@
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 **Table of Contents**
 
+- [Working Features](#working-features)
+- [Known issues](#known-issues)
+  - [S3 Performance](#s3-performance)
+  - [Sizes shown in PVE frontend](#sizes-shown-in-pve-frontend)
 - [Usage](#usage)
 - [Quickstart](#quickstart)
     - [minio](#minio)
-- [PVE configuration](#pve-configuration)
+    - [PVE configuration](#pve-configuration)
+    - [Proxmox backup client](#proxmox-backup-client)
+- [Running with Docker](#running-with-docker)
 - [Notes](#notes)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
@@ -14,6 +20,28 @@ WIP!!
 Use as follows
 
 Note: Garbage collector is experimental, use with extreme caution
+
+# Working Features
+
+The following features are currently implemented:
+
+ * Configure proxy in PVE and use it for both CT and VM backups (full and incremental)
+ * Restore functionality (VM restore, mount)
+ * Basic PVE UI integration: adding notes, setting the protection flag,
+   removing backups, showing configuration.
+ * File backup/restore/mount via proxmox-backup-client (full and incremental)
+
+# Known issues
+## S3 Performance
+
+Both the proxmox VM backup as well as the proxmox backup client will split the
+backups into many small chunks, S3 is not known to perform very well on many
+small files. The bigger your bucket gets, the more likely you will see
+Performance issues or cost peaks during restores. Feedback welcome!
+
+## Sizes shown in PVE frontend
+
+The backup size is currently not correctly shown
 
 # Usage
 
@@ -86,7 +114,7 @@ Start the proxy via:
 pmoxs3backuproxy -endpoint 127.0.0.1:9000
 ```
 
-# PVE configuration
+### PVE configuration
 
 The on PVE add proxmox backup server storage 
 
@@ -103,6 +131,15 @@ please regenerate server certificate !!
 
 Use the created access_key@pbs for username, and secret key as password, and
 bucket as datastore
+
+### Proxmox backup client
+
+Use proxmox backup client by setting the repository and password accordingly:
+
+```
+ export PBS_PASSWORD=<secret>
+ proxmox-backup-client backup root.pxar:/etc --repository <access_key>@pbs@127.0.0.1:<bucket>
+```
 
 # Running with Docker
 
