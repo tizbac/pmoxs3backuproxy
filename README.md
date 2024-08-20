@@ -50,8 +50,8 @@ performance depends largely on your setup.
 
 As with proxmox 8.2, a feature called "Backup fleecing" was introduced, [See
 release notes](https://pve.proxmox.com/wiki/Roadmap#Proxmox_VE_8.2) which
-enhances the proxmox backup for cases where the backup storage is slow to
-respond, which may be the case for hosted S3 over slow network connections.
+prevents VM lockup / slow down in case of slow backup storage, which is more
+likely to happen with hosted S3 over slow network connections.
 
 ## Sizes shown in PVE frontend
 
