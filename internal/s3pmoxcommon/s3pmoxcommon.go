@@ -93,6 +93,7 @@ func GetLatestSnapshot(c minio.Client, ds string, id string) (*Snapshot, error) 
 	}
 
 	var mostRecent = &Snapshot{}
+	mostRecent = nil
 	for _, sl := range snapshots {
 		if (mostRecent == nil || sl.BackupTime > mostRecent.BackupTime) && id == sl.BackupID {
 			mostRecent = &sl
