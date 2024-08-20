@@ -755,7 +755,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			s3backuplog.DebugPrint("%s already in S3, size: %d", objectStat.Key, objectStat.Size)
-			io.ReadAll(r.Body) // we must read data from stream, otherwise backup client gets out of sync
+			/*
+			 * If an object already exists, we must read the data sent by the
+			 * backup client, otherwise it will get out of sync.
+			 */
+			io.Copy(io.Discard, r.Body)
 			known = true
 		}
 		if s.Writers[int32(wid)].Chunksize == 0 {
@@ -797,7 +801,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if strings.HasPrefix(r.RequestURI, "/speedtest") && s.H2Ticket != nil {
-		/** Speedtest just doesnt nothing at the moment **/
+		/*
+		 * No data is uploaded during speedtest, its copied
+		 * using io.Discard for less memory footprint
+		 */
+		io.Copy(io.Discard, r.Body)
 		w.WriteHeader(http.StatusOK)
 	}
 
