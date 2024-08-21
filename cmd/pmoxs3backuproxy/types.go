@@ -58,9 +58,25 @@ type Server struct {
 }
 
 type DataStoreStatus struct {
-	Avail int64 `json:"avail"`
-	Total int64 `json:"total"`
-	Used  int64 `json:"used"`
+	Avail   int64 `json:"avail"`
+	Total   int64 `json:"total"`
+	Used    int64 `json:"used"`
+	Counts  int64 `json:"counts"`
+	GCState bool  `json:"gc-status"`
+}
+
+type Namespace struct {
+	Name    string `json:"ns"`
+	Comment string `json:"comment"`
+}
+
+type Group struct {
+	Count      uint64   `json:"backup-count"`
+	BackupID   string   `json:"backup-id"`
+	BackupType string   `json:"backup-type"`
+	Files      []string `json:"files"`
+	BackupTime uint64   `json:"last-backup"`
+	Size       uint64   `json:"size"`
 }
 
 type AssignmentRequest struct {

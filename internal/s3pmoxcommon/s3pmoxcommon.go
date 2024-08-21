@@ -30,6 +30,12 @@ func ListSnapshots(c minio.Client, datastore string, returnCorrupted bool) ([]Sn
 			existing_S, ok := prefixMap[path[1]]
 			if ok {
 				if len(path) == 3 {
+					/** Dont add the custom chunk index list
+					 * for dynamic backup to filelist
+					 **/
+					if strings.HasSuffix(path[2], ".csjson") {
+						continue
+					}
 					if object.UserTags["protected"] == "true" {
 						existing_S.Protected = true
 					}
@@ -55,7 +61,6 @@ func ListSnapshots(c minio.Client, datastore string, returnCorrupted bool) ([]Sn
 				BackupTime: backuptimei,
 				BackupType: backuptype,
 				Files:      make([]SnapshotFile, 0),
-				C:          &c,
 				Datastore:  datastore,
 				corrupted:  false,
 			}
@@ -154,20 +159,20 @@ func (S *Snapshot) ReadTags(c minio.Client) (map[string]string, error) {
 	return existingTags.ToMap(), nil
 }
 
-func (S *Snapshot) Delete() error {
+func (S *Snapshot) Delete(c minio.Client) error {
 	objectsCh := make(chan minio.ObjectInfo)
 	go func() {
 		defer close(objectsCh)
 		// List all objects from a bucket-name with a matching prefix.
 		opts := minio.ListObjectsOptions{Prefix: S.S3Prefix(), Recursive: true}
-		for object := range S.C.ListObjects(context.Background(), S.Datastore, opts) {
+		for object := range c.ListObjects(context.Background(), S.Datastore, opts) {
 			if object.Err != nil {
 				s3backuplog.ErrorPrint(object.Err.Error())
 			}
 			objectsCh <- object
 		}
 	}()
-	errorCh := S.C.RemoveObjects(context.Background(), S.Datastore, objectsCh, minio.RemoveObjectsOptions{})
+	errorCh := c.RemoveObjects(context.Background(), S.Datastore, objectsCh, minio.RemoveObjectsOptions{})
 	for e := range errorCh {
 		s3backuplog.ErrorPrint("Failed to remove " + e.ObjectName + ", error: " + e.Err.Error())
 		return e.Err

@@ -1,7 +1,5 @@
 package s3pmoxcommon
 
-import "github.com/minio/minio-go/v7"
-
 var PROXMOX_INDEX_MAGIC_DYNAMIC = [8]byte{28, 145, 78, 165, 25, 186, 179, 205}
 var PROXMOX_INDEX_MAGIC_STATIC = [8]byte{47, 127, 65, 237, 145, 253, 15, 205}
 
@@ -18,7 +16,7 @@ type Snapshot struct {
 	Files      []SnapshotFile `json:"files"`
 	Protected  bool           `json:"protected"`
 	Comment    string         `json:"comment"` // first line of notes
-	C          *minio.Client
 	Datastore  string
 	corrupted  bool
+	Size       uint64 `json:"size"`
 }
