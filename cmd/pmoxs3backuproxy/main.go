@@ -93,6 +93,7 @@ func main() {
 	srv := &http.Server{Addr: *bindAddress, Handler: S}
 	srv.SetKeepAlivesEnabled(true)
 	go S.ticketGC()
+	S.handleSignal()
 	s3backuplog.InfoPrint("Starting PBS api server on [%s], upstream: [%s] ssl: [%t]", *bindAddress, *endpointFlag, *insecureFlag)
 
 	err := srv.ListenAndServeTLS(*certFlag, *keyFlag)
