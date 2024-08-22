@@ -30,6 +30,8 @@ The following features are currently implemented:
  * Basic PVE UI integration: adding notes, setting the protection flag,
    removing backups, showing configuration.
  * File backup/restore/mount via proxmox-backup-client (full and incremental)
+ * Using it as remote store in PBS to pull backups via `proxmox-backup-manager
+   pull`
 
 # Known issues
 ## S3 Restore Performance / Considerations
