@@ -89,6 +89,8 @@ Usage of ./garbagecollector:
         Debug logging
   -endpoint string
         S3 Endpoint without https/http , host:port
+  -lookuptype string
+        Bucket lookup type: auto,dns,path (default: "auto")
   -retention uint
         Number of days to keep backups for (default 60)
   -secretkey string
