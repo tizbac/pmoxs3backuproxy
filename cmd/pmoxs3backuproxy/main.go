@@ -76,7 +76,7 @@ func main() {
 	bindAddress := flag.String("bind", "127.0.0.1:8007", "PBS Protocol bind address, recommended 127.0.0.1:8007, use :8007 for all")
 	insecureFlag := flag.Bool("usessl", false, "Use SSL for endpoint connection: default: false")
 	ticketExpireFlag := flag.Uint64("ticketexpire", 3600, "API Ticket expire time in seconds")
-	lookupTypeFlag := flag.String("lookuptype", "auto", "Bucket lookup type: auto,dns,path (default: auto)")
+	lookupTypeFlag := flag.String("lookuptype", "auto", "Bucket lookup type: auto,dns,path")
 	debug := flag.Bool("debug", false, "Debug logging")
 	flag.Parse()
 	if *endpointFlag == "" {
