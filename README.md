@@ -74,7 +74,7 @@ Usage of ./pmoxs3backuproxy:
   -key string
         Server SSL key file (default "server.key")
   -lookuptype string
-        Bucket lookup type: auto,dns,path (default: auto) (default "auto")
+        Bucket lookup type: auto,dns,path (default: "auto")
   -usessl
         Enable SSL connection to the endpoint, for use with cloud S3 providers
 ```
