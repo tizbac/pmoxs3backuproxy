@@ -76,6 +76,7 @@ func main() {
 	bindAddress := flag.String("bind", "127.0.0.1:8007", "PBS Protocol bind address, recommended 127.0.0.1:8007, use :8007 for all")
 	insecureFlag := flag.Bool("usessl", false, "Use SSL for endpoint connection: default: false")
 	ticketExpireFlag := flag.Uint64("ticketexpire", 3600, "API Ticket expire time in seconds")
+	lookupTypeFlag := flag.String("lookuptype", "auto", "Bucket lookup type: auto,dns,path (default: auto)")
 	debug := flag.Bool("debug", false, "Debug logging")
 	flag.Parse()
 	if *endpointFlag == "" {
@@ -85,17 +86,24 @@ func main() {
 	if *debug {
 		s3backuplog.EnableDebug()
 	}
+
 	S := &Server{
-		S3Endpoint:   *endpointFlag,
-		SecureFlag:   *insecureFlag,
-		TicketExpire: *ticketExpireFlag,
+		S3Endpoint:     *endpointFlag,
+		SecureFlag:     *insecureFlag,
+		TicketExpire:   *ticketExpireFlag,
+		LookupTypeFlag: *lookupTypeFlag,
 	}
 	srv := &http.Server{Addr: *bindAddress, Handler: S}
 	srv.SetKeepAlivesEnabled(true)
 	go S.ticketGC()
 	S.handleSignal()
-	s3backuplog.InfoPrint("Starting PBS api server on [%s], upstream: [%s] ssl: [%t]", *bindAddress, *endpointFlag, *insecureFlag)
-
+	s3backuplog.InfoPrint(
+		"Starting PBS api server on [%s], upstream: [%s] ssl: [%t] lookup type: [%s]",
+		*bindAddress,
+		*endpointFlag,
+		*insecureFlag,
+		*lookupTypeFlag,
+	)
 	err := srv.ListenAndServeTLS(*certFlag, *keyFlag)
 	if err != nil {
 		panic(err)
@@ -1038,14 +1046,26 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Endpoint:        s.S3Endpoint,
 			Expire:          uint64(time.Now().Unix()) + s.TicketExpire,
 		}
+
+		var lookupType minio.BucketLookupType
+		switch s.LookupTypeFlag {
+		case "path":
+			lookupType = minio.BucketLookupPath
+		case "dns":
+			lookupType = minio.BucketLookupDNS
+		default:
+			lookupType = minio.BucketLookupAuto
+		}
+
 		_, ok := connectionList[username]
 		if ok {
 			s3backuplog.DebugPrint("Re-using minio connection for username: %s", username)
 		} else {
 			s3backuplog.DebugPrint("Setup NEW minio connection for username: %s", username)
 			minioClient, err := minio.New(te.Endpoint, &minio.Options{
-				Creds:  credentials.NewStaticV4(te.AccessKeyID, te.SecretAccessKey, ""),
-				Secure: s.SecureFlag,
+				Creds:        credentials.NewStaticV4(te.AccessKeyID, te.SecretAccessKey, ""),
+				Secure:       s.SecureFlag,
+				BucketLookup: lookupType,
 			})
 			if err != nil {
 				s3backuplog.ErrorPrint("Failed to initialize S3 Object: %s", err.Error())
