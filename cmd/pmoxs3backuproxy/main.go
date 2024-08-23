@@ -547,7 +547,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Data: wid,
 		})
 		writer_mux.Lock()
-		s.Writers[wid] = &Writer{Assignments: make(map[int64][]byte), FidxName: fidxname, Size: S, ReuseCSUM: reusecsum}
+		s.Writers[wid] = &Writer{
+			Assignments: make(map[int64][]byte),
+			FidxName:    fidxname,
+			Size:        S,
+			ReuseCSUM:   reusecsum,
+		}
 		writer_mux.Unlock()
 		w.Header().Add("Content-Type", "application/json")
 		w.Write(resp)
@@ -646,8 +651,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		//It will waste a bit of space, but indexes overall are much smaller than actual data , so for now is a price that can be paid to avoid going thru all the files
 		_, err = s.H2Ticket.Client.CopyObject(
 			context.Background(),
-			minio.CopyDestOptions{Bucket: *s.SelectedDataStore, Object: "indexed/" + r.URL.Query().Get("csum") + ".fidx"},
-			minio.CopySrcOptions{Bucket: *s.SelectedDataStore, Object: s.Snapshot.S3Prefix() + "/" + s.Writers[int32(wid)].FidxName},
+			minio.CopyDestOptions{
+				Bucket: *s.SelectedDataStore,
+				Object: "indexed/" + r.URL.Query().Get("csum") + ".fidx",
+			},
+			minio.CopySrcOptions{
+				Bucket: *s.SelectedDataStore,
+				Object: s.Snapshot.S3Prefix() + "/" + s.Writers[int32(wid)].FidxName,
+			},
 		)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -1047,16 +1058,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Expire:          uint64(time.Now().Unix()) + s.TicketExpire,
 		}
 
-		var lookupType minio.BucketLookupType
-		switch s.LookupTypeFlag {
-		case "path":
-			lookupType = minio.BucketLookupPath
-		case "dns":
-			lookupType = minio.BucketLookupDNS
-		default:
-			lookupType = minio.BucketLookupAuto
-		}
-
 		_, ok := connectionList[username]
 		if ok {
 			s3backuplog.DebugPrint("Re-using minio connection for username: %s", username)
@@ -1065,7 +1066,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			minioClient, err := minio.New(te.Endpoint, &minio.Options{
 				Creds:        credentials.NewStaticV4(te.AccessKeyID, te.SecretAccessKey, ""),
 				Secure:       s.SecureFlag,
-				BucketLookup: lookupType,
+				BucketLookup: s3pmoxcommon.GetLookupType(s.LookupTypeFlag),
 			})
 			if err != nil {
 				s3backuplog.ErrorPrint("Failed to initialize S3 Object: %s", err.Error())

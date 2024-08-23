@@ -28,6 +28,7 @@ func main() {
 	secretKey := flag.String("secretkey", "", "S3 Secret Key, discouraged , use a file if possible")
 	secretKeyFile := flag.String("secretkeyfile", "", "S3 Secret Key File")
 	retentionDays := flag.Uint("retention", 60, "Number of days to keep backups for")
+	lookupTypeFlag := flag.String("lookuptype", "auto", "Bucket lookup type: auto,dns,path")
 	debug := flag.Bool("debug", false, "Debug logging")
 	flag.Parse()
 	if *endpointFlag == "" || *accessKeyID == "" || (*secretKey == "" && *secretKeyFile == "") || *bucketFlag == "" {
@@ -49,10 +50,12 @@ func main() {
 		skey = string(data)
 		skey = strings.Trim(skey, " \r\t\n")
 	}
+
 	var err error
 	minioClient, err := minio.New(*endpointFlag, &minio.Options{
-		Creds:  credentials.NewStaticV4(*accessKeyID, skey, ""),
-		Secure: (*secureFlag),
+		Creds:        credentials.NewStaticV4(*accessKeyID, skey, ""),
+		Secure:       (*secureFlag),
+		BucketLookup: s3pmoxcommon.GetLookupType(*lookupTypeFlag),
 	})
 
 	s3backuplog.InfoPrint("Acquire Lock")

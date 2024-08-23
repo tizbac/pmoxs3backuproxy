@@ -179,3 +179,14 @@ func (S *Snapshot) Delete(c minio.Client) error {
 	}
 	return nil
 }
+
+func GetLookupType(Typeflag string) minio.BucketLookupType {
+	switch Typeflag {
+	case "path":
+		return minio.BucketLookupPath
+	case "dns":
+		return minio.BucketLookupDNS
+	default:
+		return minio.BucketLookupAuto
+	}
+}
