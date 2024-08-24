@@ -150,6 +150,11 @@ func main() {
 		s3backuplog.InfoPrint("Server certificate fingerprint is: %s", *certFing)
 	}
 
+	if certFing != nil && *certFing == "55:BC:29:4B:BA:B6:A1:03:42:A9:D8:51:14:9D:BD:00:D2:2A:9C:A1:B8:4A:85:E1:AF:B2:0C:48:40:D6:CC:A4" {
+		//Warn the user about MITM
+		s3backuplog.WarnPrint("You are using default supplied certificate!, do not run PVE->S3PROXY on untrusted network!!!")
+	}
+
 	err := srv.ListenAndServeTLS(*certFlag, *keyFlag)
 	if err != nil {
 		panic(err)
