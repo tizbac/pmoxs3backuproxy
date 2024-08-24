@@ -16,16 +16,16 @@ func EnableDebug() {
 
 func DebugPrint(fmt string, args ...interface{}) {
 	if Gdebug {
-		log.Printf("[\033[34;1mDEBUG\033[0m] "+fmt, args...)
+		log.Printf("[\033[34;1m DEBUG \033[0m] "+fmt, args...)
 	}
 }
 
 func InfoPrint(fmt string, args ...interface{}) {
-	log.Printf("[\033[37;1mINFO\033[0m] "+fmt, args...)
+	log.Printf("[\033[37;1m  INFO \033[0m] "+fmt, args...)
 }
 
 func ErrorPrint(fmt string, args ...interface{}) {
-	log.Printf("[\033[31;1mERROR\033[0m] "+fmt, args...)
+	log.Printf("[\033[31;1m ERROR \033[0m] "+fmt, args...)
 }
 
 func WarnPrint(fmt string, args ...interface{}) {
