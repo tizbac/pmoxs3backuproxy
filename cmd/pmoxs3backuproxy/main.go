@@ -22,10 +22,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"flag"
 	"fmt"
 	"io"
@@ -69,6 +72,43 @@ func RandStringBytes(n int) string {
 	return string(b)
 }
 
+func certFingeprint(cfile string) *string {
+	certData, err := os.ReadFile(cfile)
+	if err != nil {
+		s3backuplog.ErrorPrint("Failed to read certificate file: %s", err)
+		return nil
+	}
+
+	certblock, _ := pem.Decode(certData)
+
+	if err != nil {
+		s3backuplog.ErrorPrint("Failed to parse PEM file: %s", err)
+		return nil
+	}
+
+	cert, err := x509.ParseCertificate(certblock.Bytes)
+
+	if err != nil {
+		s3backuplog.ErrorPrint("Failed to parse certificate file: %s", err)
+		return nil
+	}
+	fingerprint := sha256.Sum256(cert.Raw)
+
+	a := make([]string, 0)
+
+	for i := 0; i < len(fingerprint); i++ {
+		a = append(a, hex.EncodeToString(fingerprint[i:i+1]))
+	}
+
+	s := strings.Join(a, ":")
+
+	s = strings.ToUpper(s)
+
+	return &s
+
+	//s3backuplog.InfoPrint("Certificate fingerprint is %s", cert.PublicKey.)
+}
+
 func main() {
 	certFlag := flag.String("cert", "server.crt", "Server SSL certificate file")
 	keyFlag := flag.String("key", "server.key", "Server SSL key file")
@@ -104,6 +144,12 @@ func main() {
 		*insecureFlag,
 		*lookupTypeFlag,
 	)
+
+	certFing := certFingeprint(*certFlag)
+	if certFing != nil {
+		s3backuplog.InfoPrint("Server certificate fingerprint is: %s", *certFing)
+	}
+
 	err := srv.ListenAndServeTLS(*certFlag, *keyFlag)
 	if err != nil {
 		panic(err)
