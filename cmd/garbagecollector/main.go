@@ -119,7 +119,13 @@ func main() {
 		s3backuplog.ErrorPrint("Unable to list snapshots: %s", err.Error())
 		os.Exit(1)
 	}
-	s3backuplog.InfoPrint("%v snapshots in archive", len(snapshots))
+
+	if len(snapshots) == 0 {
+		s3backuplog.WarnPrint("No snapshots found in bucket")
+		os.Exit(1)
+	}
+
+	s3backuplog.InfoPrint("%v snapshots in bucket", len(snapshots))
 	for _, s := range snapshots {
 		if s.BackupTime+(uint64(*retentionDays))*86400 < uint64(time.Now().Unix()) {
 			if s.Protected == true {
