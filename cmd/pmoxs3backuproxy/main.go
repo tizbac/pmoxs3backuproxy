@@ -628,15 +628,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		//FIDX format is documented on Proxmox Backup docs pdf
 
 		outFile := new(bytes.Buffer)
-		writeBinary(outFile, s3pmoxcommon.PROXMOX_INDEX_MAGIC_STATIC)
-		u := uuid.New()
-		b, _ := u.MarshalBinary()
-		writeBinary(outFile, b)
-		writeBinary(outFile, uint64(time.Now().Unix()))
-		writeBinary(outFile, csumindex)
-		writeBinary(outFile, uint64(s.Writers[int32(wid)].Size))
-		writeBinary(outFile, uint64(s.Writers[int32(wid)].Chunksize))
-		reserved := [4016]byte{}
 
 		if s.Writers[int32(wid)].ReuseCSUM != "" {
 			//In that case we load from S3 the specified reuse index
@@ -664,6 +655,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s3backuplog.DebugPrint("Reusing old index")
 			writeBinary(outFile, current)
 		} else {
+			writeBinary(outFile, s3pmoxcommon.PROXMOX_INDEX_MAGIC_STATIC)
+			u := uuid.New()
+			b, _ := u.MarshalBinary()
+			writeBinary(outFile, b)
+			writeBinary(outFile, uint64(time.Now().Unix()))
+			writeBinary(outFile, csumindex)
+			writeBinary(outFile, uint64(s.Writers[int32(wid)].Size))
+			writeBinary(outFile, uint64(s.Writers[int32(wid)].Chunksize))
+			reserved := [4016]byte{}
 			writeBinary(outFile, reserved)
 		}
 		for i := uint64(0); i < s.Writers[int32(wid)].Size; i += s.Writers[int32(wid)].Chunksize {
