@@ -76,6 +76,10 @@ func main() {
 		Secure:       (*secureFlag),
 		BucketLookup: s3pmoxcommon.GetLookupType(*lookupTypeFlag),
 	})
+	if minioerr != nil {
+		s3backuplog.ErrorPrint("Creating S3 Client: %s", minioerr.Error())
+		os.Exit(1)
+	}
 
 	s3backuplog.InfoPrint("Acquire Lock")
 	h := sha256.Sum256([]byte(*endpointFlag + "|" + *bucketFlag))
@@ -94,13 +98,21 @@ func main() {
 	}
 	s3backuplog.DebugPrint("Locked %s", lockname)
 
-	if minioerr != nil {
-		s3backuplog.ErrorPrint("Creating S3 Client: %s", minioerr.Error())
+	//TODO Locking
+
+	ctx := context.Background()
+	bucket, staterr := minioClient.BucketExists(ctx, *bucketFlag)
+	if staterr != nil {
+		s3backuplog.ErrorPrint("Unable to access specified bucket: %s", staterr.Error())
 		os.Exit(1)
 	}
-	//TODO Locking
-	//Phase 1 Delete backups older than retentionDays
+	if !bucket {
+		s3backuplog.ErrorPrint("Specified bucket [%s] does not exist", *bucketFlag)
+		os.Exit(1)
 
+	}
+
+	//Phase 1 Delete backups older than retentionDays
 	s3backuplog.InfoPrint("Fetching snapshots")
 	snapshots, err := s3pmoxcommon.ListSnapshots(*minioClient, *bucketFlag, true)
 	if err != nil {
@@ -131,7 +143,6 @@ func main() {
 	knownHashes := make(map[string]bool)
 	knownChunks := make(map[string][]string)
 	existingChunks := make(map[string]bool)
-	ctx := context.Background()
 	s3backuplog.InfoPrint("Fetching object hashes")
 	for object := range minioClient.ListObjects(ctx, *bucketFlag, minio.ListObjectsOptions{Recursive: true, Prefix: "backups/"}) {
 		knownHashes[object.ChecksumSHA256] = true
