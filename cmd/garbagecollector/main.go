@@ -65,14 +65,13 @@ func main() {
 		if err != nil {
 			s3backuplog.ErrorPrint("Reading key file %s : %s", *secretKeyFile, err.Error())
 			os.Exit(1)
-			return
 		}
 		skey = string(data)
 		skey = strings.Trim(skey, " \r\t\n")
 	}
 
 	var err error
-	minioClient, err := minio.New(*endpointFlag, &minio.Options{
+	minioClient, minioerr := minio.New(*endpointFlag, &minio.Options{
 		Creds:        credentials.NewStaticV4(*accessKeyID, skey, ""),
 		Secure:       (*secureFlag),
 		BucketLookup: s3pmoxcommon.GetLookupType(*lookupTypeFlag),
@@ -91,14 +90,13 @@ func main() {
 	SessionsRelease, err := mutex.Acquire(sp)
 	if err != nil {
 		s3backuplog.ErrorPrint("Failed to acquire Lock for %s: %s", lockname, err.Error())
-		return
+		os.Exit(1)
 	}
 	s3backuplog.DebugPrint("Locked %s", lockname)
 
-	if err != nil {
-		s3backuplog.ErrorPrint("Creating S3 Client: %s", err.Error())
+	if minioerr != nil {
+		s3backuplog.ErrorPrint("Creating S3 Client: %s", minioerr.Error())
 		os.Exit(1)
-		return
 	}
 	//TODO Locking
 	//Phase 1 Delete backups older than retentionDays
@@ -108,7 +106,6 @@ func main() {
 	if err != nil {
 		s3backuplog.ErrorPrint("Unable to list snapshots: %s", err.Error())
 		os.Exit(1)
-		return
 	}
 	s3backuplog.InfoPrint("%v snapshots in archive", len(snapshots))
 	for _, s := range snapshots {
@@ -170,31 +167,26 @@ func main() {
 			if err != nil {
 				s3backuplog.ErrorPrint("Error accessing object %s: %s", object.Key, err.Error())
 				os.Exit(1)
-				return
 			}
 			data, err := io.ReadAll(o)
 			if err != nil {
 				s3backuplog.ErrorPrint("Error reading object %s: %s", object.Key, err.Error())
 				os.Exit(1)
-				return
 			}
 			if len(data) < 4096 {
 				s3backuplog.ErrorPrint("Error reading object %s: Too small", object.Key)
 				os.Exit(1)
-				return
 			}
 
 			if csumerr := compareSum(data[32:64], data[4096:], object.UserMetadata["X-Amz-Meta-Csum"]); csumerr != nil {
 				s3backuplog.ErrorPrint("%s", csumerr.Error())
 				os.Exit(1)
-				return
 			}
 
 			data = data[4096:]
 			if len(data)%32 != 0 {
 				s3backuplog.ErrorPrint("Error examining object %s: Data after header length is not 32 bytes aligned", object.Key)
 				os.Exit(1)
-				return
 			}
 			for i := 0; i < len(data)/32; i++ {
 				val, ok := knownChunks[hex.EncodeToString(data[i*32:(i+1)*32])]
@@ -211,24 +203,20 @@ func main() {
 			if err != nil {
 				s3backuplog.ErrorPrint("Error accessing object %s: %s", object.Key, err.Error())
 				os.Exit(1)
-				return
 			}
 			data, err := io.ReadAll(o)
 			if err != nil {
 				s3backuplog.ErrorPrint("Error reading object %s: %s", object.Key, err.Error())
 				os.Exit(1)
-				return
 			}
 			if len(data) < 4096 {
 				s3backuplog.ErrorPrint("Error reading object %s: Too small", object.Key)
 				os.Exit(1)
-				return
 			}
 
 			if csumerr := compareSum(data[32:64], data[4096:], object.UserMetadata["X-Amz-Meta-Csum"]); csumerr != nil {
 				s3backuplog.ErrorPrint("%s", csumerr.Error())
 				os.Exit(1)
-				return
 			}
 
 			reader := bytes.NewReader(data[4096:])
@@ -297,7 +285,6 @@ func main() {
 				if err != nil {
 					s3backuplog.ErrorPrint("Error tagging %s as corrupt: %s", oname, err.Error())
 					os.Exit(1)
-					return
 				}
 			}
 
