@@ -150,20 +150,36 @@ func main() {
 	knownChunks := make(map[string][]string)
 	existingChunks := make(map[string]bool)
 	s3backuplog.InfoPrint("Fetching object hashes")
-	for object := range minioClient.ListObjects(ctx, *bucketFlag, minio.ListObjectsOptions{Recursive: true, Prefix: "backups/"}) {
-		knownHashes[object.ChecksumSHA256] = true
+	for object := range minioClient.ListObjects(ctx, *bucketFlag, minio.ListObjectsOptions{
+		Recursive:    true,
+		Prefix:       "backups/",
+		WithMetadata: true,
+	}) {
+		// indexed folder only set for fixed index snapshots
+		if !strings.HasSuffix(object.Key, ".fidx") {
+			continue
+		}
+		if object.UserMetadata["X-Amz-Meta-Csum"] == "" {
+			s3backuplog.ErrorPrint("%s: object has no csum metadata flag set", object.Key)
+			os.Exit(1)
+		}
+		knownHashes[object.UserMetadata["X-Amz-Meta-Csum"]] = true
 	}
 	s3backuplog.InfoPrint("%v object hashes found", len(knownHashes))
 
-	s3backuplog.InfoPrint("Removing orphaned indexes")
+	s3backuplog.InfoPrint("Removing orphaned object hashes")
 	objectsCh := make(chan minio.ObjectInfo)
 	go func() {
 		defer close(objectsCh)
-		for object := range minioClient.ListObjects(ctx, *bucketFlag, minio.ListObjectsOptions{Recursive: true, Prefix: "indexed/"}) {
-			_, ok := knownHashes[object.ChecksumSHA256]
+		for object := range minioClient.ListObjects(ctx, *bucketFlag, minio.ListObjectsOptions{
+			Recursive:    true,
+			Prefix:       "indexed/",
+			WithMetadata: true,
+		}) {
+			_, ok := knownHashes[object.UserMetadata["X-Amz-Meta-Csum"]]
 			if !ok {
+				s3backuplog.InfoPrint("Removing orphaned object hash %s for object %s", object.UserMetadata["X-Amz-Meta-Csum"], object.Key)
 				objectsCh <- object
-				s3backuplog.DebugPrint("Removing orphaned index for object %s with S3 sha256: %s", object.Key, object.ChecksumSHA256)
 			}
 		}
 	}()
