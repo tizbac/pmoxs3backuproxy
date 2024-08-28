@@ -656,7 +656,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else {
 			//In that case a new index is allocated, 4096 is the header, then size/chunksize blocks follow of 32 bytes ( chunk digest sha 256 )
 			outFile = make([]byte, 4096+32*len(s.Writers[int32(wid)].Assignments))
-			outFile[0], outFile[1], outFile[2], outFile[3], outFile[4], outFile[5], outFile[6], outFile[7] = 47, 127, 65, 237, 145, 253, 15, 205 //Header magic as per PBS docs
+			copy(outFile[0:8], s3pmoxcommon.PROXMOX_INDEX_MAGIC_FIXED[:])
 			//Chunksize in that case is derived from at least one chunk having been uploaded
 			sl := binary.LittleEndian.AppendUint64(make([]byte, 0), s.Writers[int32(wid)].Size)
 			copy(outFile[64:72], sl)
