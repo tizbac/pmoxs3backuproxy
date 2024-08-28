@@ -571,6 +571,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 						}
 					}
 				}
+				s3backuplog.DebugPrint(
+					"Returning previous snapshot object: %s",
+					mostRecent.S3Prefix()+"/"+f.Filename,
+				)
 				w.Header().Add("Content-Length", fmt.Sprintf("%d", stat.Size))
 				w.WriteHeader(http.StatusOK)
 				io.Copy(w, obj)
@@ -1069,6 +1073,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		conn, _, _ := hj.Hijack() //Here SSL/TCP connection is deowned from the HTTP1.1 server and passed to HTTP2 handler after sending headers telling the client that we are switching protocols
 		ss := s3pmoxcommon.Snapshot{}
 		ss.InitWithQuery(r.URL.Query())
+		s3backuplog.InfoPrint("New Backup request from host [%s]", r.RemoteAddr)
 		go s.backup(conn, C, r.URL.Query().Get("store"), ss)
 	}
 
@@ -1079,6 +1084,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		conn, _, _ := hj.Hijack() //Here SSL/TCP connection is deowned from the HTTP1.1 server and passed to HTTP2 handler after sending headers telling the client that we are switching protocols
 		ss := s3pmoxcommon.Snapshot{}
 		ss.InitWithQuery(r.URL.Query())
+		s3backuplog.InfoPrint("New restore request from host [%s]", r.RemoteAddr)
 		go s.restore(conn, C, r.URL.Query().Get("store"), ss)
 	}
 
