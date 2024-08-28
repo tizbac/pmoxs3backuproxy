@@ -210,7 +210,10 @@ func main() {
 				s3backuplog.ErrorPrint("Error reading object %s: Too small", object.Key)
 				os.Exit(1)
 			}
-
+			if !bytes.Equal(data[0:8], s3pmoxcommon.PROXMOX_INDEX_MAGIC_FIXED[:]) {
+				s3backuplog.ErrorPrint("Fixed index %s has wrong magic", object.Key)
+				os.Exit(1)
+			}
 			if csumerr := compareSum(data[32:64], data[4096:], object.UserMetadata["X-Amz-Meta-Csum"]); csumerr != nil {
 				s3backuplog.ErrorPrint("%s", csumerr.Error())
 				os.Exit(1)
@@ -246,7 +249,10 @@ func main() {
 				s3backuplog.ErrorPrint("Error reading object %s: Too small", object.Key)
 				os.Exit(1)
 			}
-
+			if !bytes.Equal(data[0:8], s3pmoxcommon.PROXMOX_INDEX_MAGIC_DYNAMIC[:]) {
+				s3backuplog.ErrorPrint("Dynamic index %s has wrong magic", object.Key)
+				os.Exit(1)
+			}
 			if csumerr := compareSum(data[32:64], data[4096:], object.UserMetadata["X-Amz-Meta-Csum"]); csumerr != nil {
 				s3backuplog.ErrorPrint("%s", csumerr.Error())
 				os.Exit(1)
@@ -320,7 +326,6 @@ func main() {
 					os.Exit(1)
 				}
 			}
-
 		}
 	}
 	s3backuplog.InfoPrint("Finished")
