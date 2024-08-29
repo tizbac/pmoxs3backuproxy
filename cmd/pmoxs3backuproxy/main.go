@@ -355,6 +355,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			/** We dont have namespaces implemented now, so we just return
 			 *	the default namespace
 			**/
+			if r.Method != "GET" {
+				w.WriteHeader(http.StatusNotImplemented)
+				w.Write([]byte("Not implemented"))
+				return
+			}
 			namespaces := make([]Namespace, 0)
 			namespaces = append(namespaces, Namespace{Name: "Root"})
 			resp, _ := json.Marshal(Response{
