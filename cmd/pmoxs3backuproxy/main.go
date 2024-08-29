@@ -328,9 +328,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Write(resp)
 			return
 		}
-		if action == "gc" {
+		if action == "gc" || action == "prune" {
 			/**
-			 * proxmox-backup-client garbage-collect
+			 * proxmox-backup-client garbage-collect and PVE frontend "prune
+			 * group" endpoints are not implemented
 			 **/
 			w.WriteHeader(http.StatusNotImplemented)
 			w.Write([]byte("Not implemented"))
