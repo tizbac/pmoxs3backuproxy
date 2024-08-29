@@ -73,5 +73,7 @@ jobs:
           proxmox-backup-client snapshot protected update "$VER" false
           echo "run GC"
           ./garbagecollector -endpoint $ENDPOINT -accesskey "$USERNAME" -secretkey "$PBS_PASSWORD" -bucket backups
+          echo "list backups"
+          proxmox-backup-client list
           echo "forget snapshot"
           proxmox-backup-client snapshot forget "$VER"
