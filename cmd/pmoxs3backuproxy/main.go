@@ -328,6 +328,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Write(resp)
 			return
 		}
+		if action == "gc" {
+			/**
+			 * proxmox-backup-client garbage-collect
+			 **/
+			w.WriteHeader(http.StatusNotImplemented)
+			w.Write([]byte("Not implemented"))
+			return
+		}
 		if action == "status" {
 			//Seems to not be supported by minio fecthing used size so we return dummy values to make all look fine
 			resp, _ := json.Marshal(Response{
@@ -356,12 +364,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Write(resp)
 		}
 
-		if strings.HasPrefix(action, "groups?") {
+		if strings.HasPrefix(action, "groups") {
 			/**
 				Return a backup group (usually for a given namespace)
+				used by proxmox-backup-client list and proxmox-backup-manager pull
 			**/
 			ns := r.URL.Query().Get("ns")
-			s3backuplog.DebugPrint("Request for namespace: %s", ns)
+			if ns != "" {
+				s3backuplog.DebugPrint("Request for namespace: %s", ns)
+			}
 			snapshots, _ := s3pmoxcommon.ListSnapshots(*C.Client, ds, false)
 			groups := make([]Group, 0)
 			for _, snap := range snapshots {
