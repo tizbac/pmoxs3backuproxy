@@ -60,6 +60,10 @@ func (s *Server) backup(sock net.Conn, C TicketEntry, ds string, S s3pmoxcommon.
 		s.SessionsRelease.Release()
 	}
 	s.SessionsMutex.Unlock()
+	s3backuplog.InfoPrint(
+		"Backup session by [%s] finished",
+		sock.RemoteAddr().String(),
+	)
 }
 
 func (s *Server) restore(sock net.Conn, C TicketEntry, ds string, S s3pmoxcommon.Snapshot) {
@@ -101,4 +105,8 @@ func (s *Server) restore(sock net.Conn, C TicketEntry, ds string, S s3pmoxcommon
 		s.SessionsRelease.Release()
 	}
 	s.SessionsMutex.Unlock()
+	s3backuplog.InfoPrint(
+		"Restore session by [%s] finished",
+		sock.RemoteAddr().String(),
+	)
 }

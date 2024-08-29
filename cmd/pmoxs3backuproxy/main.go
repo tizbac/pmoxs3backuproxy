@@ -1073,8 +1073,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		conn, _, _ := hj.Hijack() //Here SSL/TCP connection is deowned from the HTTP1.1 server and passed to HTTP2 handler after sending headers telling the client that we are switching protocols
 		ss := s3pmoxcommon.Snapshot{}
 		ss.InitWithQuery(r.URL.Query())
-		s3backuplog.InfoPrint("New Backup request from host [%s]", r.RemoteAddr)
-		go s.backup(conn, C, r.URL.Query().Get("store"), ss)
+		store := r.URL.Query().Get("store")
+		bcktype := r.URL.Query().Get("backup-type")
+		s3backuplog.InfoPrint(
+			"New Backup request from host [%s], ID: [%s], Type: [%s], Bucket: [%s]",
+			r.RemoteAddr,
+			ss.BackupID,
+			bcktype,
+			store,
+		)
+		go s.backup(conn, C, store, ss)
 	}
 
 	if strings.HasPrefix(r.RequestURI, "//api2/json/reader") && auth {
@@ -1084,8 +1092,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		conn, _, _ := hj.Hijack() //Here SSL/TCP connection is deowned from the HTTP1.1 server and passed to HTTP2 handler after sending headers telling the client that we are switching protocols
 		ss := s3pmoxcommon.Snapshot{}
 		ss.InitWithQuery(r.URL.Query())
-		s3backuplog.InfoPrint("New restore request from host [%s]", r.RemoteAddr)
-		go s.restore(conn, C, r.URL.Query().Get("store"), ss)
+		store := r.URL.Query().Get("store")
+		bcktype := r.URL.Query().Get("backup-type")
+		s3backuplog.InfoPrint(
+			"New Restore request from host [%s], ID: [%s], Type: [%s], Bucket: [%s]",
+			r.RemoteAddr,
+			ss.BackupID,
+			bcktype,
+			store,
+		)
+		go s.restore(conn, C, store, ss)
 	}
 
 	if (r.RequestURI == "//api2/json/access/ticket" || r.RequestURI == "/api2/json/access/ticket") && r.Method == "POST" {
