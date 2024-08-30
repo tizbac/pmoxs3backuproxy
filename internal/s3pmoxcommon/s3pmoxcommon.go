@@ -90,7 +90,7 @@ func ListSnapshots(c minio.Client, datastore string, returnCorrupted bool) ([]Sn
 	return resparray2, ctx.Err()
 }
 
-func GetLatestSnapshot(c minio.Client, ds string, id string) (*Snapshot, error) {
+func GetLatestSnapshot(c minio.Client, ds string, id string, time uint64) (*Snapshot, error) {
 	snapshots, err := ListSnapshots(c, ds, false)
 	if err != nil {
 		s3backuplog.ErrorPrint(err.Error())
@@ -104,6 +104,10 @@ func GetLatestSnapshot(c minio.Client, ds string, id string) (*Snapshot, error) 
 	var mostRecent = &Snapshot{}
 	mostRecent = nil
 	for _, sl := range snapshots {
+		if sl.BackupTime == time && sl.BackupID == id {
+			s3backuplog.DebugPrint("GetLatestSnapshot: ignoring currently processed snapshot.")
+			continue
+		}
 		if (mostRecent == nil || sl.BackupTime > mostRecent.BackupTime) && id == sl.BackupID {
 			mostRecent = &sl
 		}

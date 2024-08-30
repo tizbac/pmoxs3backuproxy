@@ -512,6 +512,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			*s.H2Ticket.Client,
 			*s.SelectedDataStore,
 			s.Snapshot.BackupID,
+			s.Snapshot.BackupTime,
 		)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -532,6 +533,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			*s.H2Ticket.Client,
 			*s.SelectedDataStore,
 			s.Snapshot.BackupID,
+			s.Snapshot.BackupTime,
 		)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -588,7 +590,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 						}
 					}
 				}
-				s3backuplog.DebugPrint(
+				s3backuplog.InfoPrint(
 					"Returning previous snapshot object: %s",
 					mostRecent.S3Prefix()+"/"+f.Filename,
 				)
@@ -1093,11 +1095,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		store := r.URL.Query().Get("store")
 		bcktype := r.URL.Query().Get("backup-type")
 		s3backuplog.InfoPrint(
-			"New Backup request from host [%s], ID: [%s], Type: [%s], Bucket: [%s]",
+			"New Backup request from host [%s], ID: [%s], Type: [%s], Bucket: [%s], Timestamp: [%d]",
 			r.RemoteAddr,
 			ss.BackupID,
 			bcktype,
 			store,
+			ss.BackupTime,
 		)
 		go s.backup(conn, C, store, ss)
 	}
