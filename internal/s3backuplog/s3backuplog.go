@@ -31,3 +31,7 @@ func ErrorPrint(fmt string, args ...interface{}) {
 func WarnPrint(fmt string, args ...interface{}) {
 	log.Printf("[\033[33;1mWARNING\033[0m] "+fmt, args...)
 }
+
+func FatalPrint(fmt string, args ...interface{}) {
+	log.Fatalf("[\033[31;1m FATAL \033[0m] "+fmt, args...)
+}

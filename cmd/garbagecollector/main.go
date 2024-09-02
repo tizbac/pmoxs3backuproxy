@@ -63,8 +63,7 @@ func main() {
 	if skey == "" {
 		data, err := os.ReadFile(*secretKeyFile)
 		if err != nil {
-			s3backuplog.ErrorPrint("Reading key file %s : %s", *secretKeyFile, err.Error())
-			os.Exit(1)
+			s3backuplog.FatalPrint("Reading key file %s : %s", *secretKeyFile, err.Error())
 		}
 		skey = string(data)
 		skey = strings.Trim(skey, " \r\t\n")
@@ -77,8 +76,7 @@ func main() {
 		BucketLookup: s3pmoxcommon.GetLookupType(*lookupTypeFlag),
 	})
 	if minioerr != nil {
-		s3backuplog.ErrorPrint("Creating S3 Client: %s", minioerr.Error())
-		os.Exit(1)
+		s3backuplog.FatalPrint("Creating S3 Client: %s", minioerr.Error())
 	}
 
 	s3backuplog.InfoPrint("Acquire Lock")
@@ -93,36 +91,29 @@ func main() {
 
 	SessionsRelease, err := mutex.Acquire(sp)
 	if err != nil {
-		s3backuplog.ErrorPrint("Failed to acquire Lock for %s: %s", lockname, err.Error())
-		os.Exit(1)
+		s3backuplog.FatalPrint("Failed to acquire Lock for %s: %s", lockname, err.Error())
 	}
 	s3backuplog.DebugPrint("Locked %s", lockname)
-
-	//TODO Locking
 
 	ctx := context.Background()
 	bucket, staterr := minioClient.BucketExists(ctx, *bucketFlag)
 	if staterr != nil {
-		s3backuplog.ErrorPrint("Unable to access specified bucket: %s", staterr.Error())
-		os.Exit(1)
+		s3backuplog.FatalPrint("Unable to access specified bucket: %s", staterr.Error())
 	}
 	if !bucket {
-		s3backuplog.ErrorPrint("Specified bucket [%s] does not exist", *bucketFlag)
-		os.Exit(1)
-
+		s3backuplog.FatalPrint("Specified bucket [%s] does not exist", *bucketFlag)
 	}
 
 	//Phase 1 Delete backups older than retentionDays
 	s3backuplog.InfoPrint("Fetching snapshots")
 	snapshots, err := s3pmoxcommon.ListSnapshots(*minioClient, *bucketFlag, true)
 	if err != nil {
-		s3backuplog.ErrorPrint("Unable to list snapshots: %s", err.Error())
-		os.Exit(1)
+		s3backuplog.FatalPrint("Unable to list snapshots: %s", err.Error())
 	}
 
 	if len(snapshots) == 0 {
-		s3backuplog.WarnPrint("No snapshots found in bucket")
-		os.Exit(1)
+		s3backuplog.InfoPrint("No snapshots found in bucket")
+		os.Exit(0)
 	}
 
 	s3backuplog.InfoPrint("%v snapshots in bucket", len(snapshots))
@@ -160,8 +151,7 @@ func main() {
 			continue
 		}
 		if object.UserMetadata["X-Amz-Meta-Csum"] == "" {
-			s3backuplog.ErrorPrint("%s: object has no csum metadata flag set", object.Key)
-			os.Exit(1)
+			s3backuplog.FatalPrint("%s: object has no csum metadata flag set", object.Key)
 		}
 		knownHashes[object.UserMetadata["X-Amz-Meta-Csum"]] = true
 	}
@@ -198,31 +188,25 @@ func main() {
 			s3backuplog.InfoPrint("Processing fixed index: %s", object.Key)
 			o, err := minioClient.GetObject(ctx, *bucketFlag, object.Key, minio.GetObjectOptions{})
 			if err != nil {
-				s3backuplog.ErrorPrint("Error accessing object %s: %s", object.Key, err.Error())
-				os.Exit(1)
+				s3backuplog.FatalPrint("Error accessing object %s: %s", object.Key, err.Error())
 			}
 			data, err := io.ReadAll(o)
 			if err != nil {
-				s3backuplog.ErrorPrint("Error reading object %s: %s", object.Key, err.Error())
-				os.Exit(1)
+				s3backuplog.FatalPrint("Error reading object %s: %s", object.Key, err.Error())
 			}
 			if len(data) < 4096 {
-				s3backuplog.ErrorPrint("Error reading object %s: Too small", object.Key)
-				os.Exit(1)
+				s3backuplog.FatalPrint("Error reading object %s: Too small", object.Key)
 			}
 			if !bytes.Equal(data[0:8], s3pmoxcommon.PROXMOX_INDEX_MAGIC_FIXED[:]) {
-				s3backuplog.ErrorPrint("Fixed index %s has wrong magic", object.Key)
-				os.Exit(1)
+				s3backuplog.FatalPrint("Fixed index %s has wrong magic", object.Key)
 			}
 			if csumerr := compareSum(data[32:64], data[4096:], object.UserMetadata["X-Amz-Meta-Csum"]); csumerr != nil {
-				s3backuplog.ErrorPrint("%s", csumerr.Error())
-				os.Exit(1)
+				s3backuplog.FatalPrint("%s", csumerr.Error())
 			}
 
 			data = data[4096:]
 			if len(data)%32 != 0 {
-				s3backuplog.ErrorPrint("Error examining object %s: Data after header length is not 32 bytes aligned", object.Key)
-				os.Exit(1)
+				s3backuplog.FatalPrint("Error examining object %s: Data after header length is not 32 bytes aligned", object.Key)
 			}
 			for i := 0; i < len(data)/32; i++ {
 				val, ok := knownChunks[hex.EncodeToString(data[i*32:(i+1)*32])]
@@ -237,25 +221,20 @@ func main() {
 			s3backuplog.InfoPrint("Processing dynamic index: %s", object.Key)
 			o, err := minioClient.GetObject(ctx, *bucketFlag, object.Key, minio.GetObjectOptions{})
 			if err != nil {
-				s3backuplog.ErrorPrint("Error accessing object %s: %s", object.Key, err.Error())
-				os.Exit(1)
+				s3backuplog.FatalPrint("Error accessing object %s: %s", object.Key, err.Error())
 			}
 			data, err := io.ReadAll(o)
 			if err != nil {
-				s3backuplog.ErrorPrint("Error reading object %s: %s", object.Key, err.Error())
-				os.Exit(1)
+				s3backuplog.FatalPrint("Error reading object %s: %s", object.Key, err.Error())
 			}
 			if len(data) < 4096 {
-				s3backuplog.ErrorPrint("Error reading object %s: Too small", object.Key)
-				os.Exit(1)
+				s3backuplog.FatalPrint("Error reading object %s: Too small", object.Key)
 			}
 			if !bytes.Equal(data[0:8], s3pmoxcommon.PROXMOX_INDEX_MAGIC_DYNAMIC[:]) {
-				s3backuplog.ErrorPrint("Dynamic index %s has wrong magic", object.Key)
-				os.Exit(1)
+				s3backuplog.FatalPrint("Dynamic index %s has wrong magic", object.Key)
 			}
 			if csumerr := compareSum(data[32:64], data[4096:], object.UserMetadata["X-Amz-Meta-Csum"]); csumerr != nil {
-				s3backuplog.ErrorPrint("%s", csumerr.Error())
-				os.Exit(1)
+				s3backuplog.FatalPrint("%s", csumerr.Error())
 			}
 
 			reader := bytes.NewReader(data[4096:])
@@ -322,8 +301,7 @@ func main() {
 				r := strings.NewReader("CORRUPTED")
 				_, err := minioClient.PutObject(ctx, *bucketFlag, basepath+"/corrupted", r, 9, minio.PutObjectOptions{})
 				if err != nil {
-					s3backuplog.ErrorPrint("Error tagging %s as corrupt: %s", oname, err.Error())
-					os.Exit(1)
+					s3backuplog.FatalPrint("Error tagging %s as corrupt: %s", oname, err.Error())
 				}
 			}
 		}
