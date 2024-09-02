@@ -20,7 +20,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"os"
 	"time"
@@ -37,27 +36,22 @@ func backup(id string, backupTime time.Time, repo string, password string) {
 	client, err := bps.NewBackup(repo, "", id, t, password, fingerprint, "", "", false)
 	if err != nil {
 		log.Fatalln(err)
-		os.Exit(1)
 	}
 	defer client.Close()
 	err = client.AddConfig("test", []byte("test2"))
 	if err != nil {
-		log.Println(err)
-		os.Exit(1)
+		log.Fatalln(err)
 	}
 	image, err := client.RegisterImage("test", 11)
 	if err != nil {
-		log.Println(err)
-		os.Exit(1)
+		log.Fatalln(err)
 	} else {
-		//data, _ := io.ReadAll(resp.Body)
 		image.WriteAt([]byte("testcontent"), 0)
 		image.Close()
 	}
 	err = client.Finish()
 	if err != nil {
-		log.Println(err)
-		os.Exit(1)
+		log.Fatalln(err)
 	}
 }
 
@@ -66,17 +60,21 @@ func restore(id string, backupTime time.Time, repo string, password string) {
 	client, err := bps.NewRestore(repo, "vm", "vm", id, t, password, fingerprint, "", "")
 	if err != nil {
 		log.Fatalln(err)
-		os.Exit(1)
 	}
 	defer client.Close()
 	image, err := client.OpenImage("test.img.fidx")
 	if err != nil {
-		log.Println(err)
-		os.Exit(1)
+		log.Fatalln(err)
 	} else {
 		data := make([]byte, 11)
-		image.ReadAt(data, 0)
-		fmt.Println(string(data))
+		_, err := image.ReadAt(data, 0)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		log.Println(string(data))
+		if string(data) != "testcontent" {
+			log.Fatalln("unable to verify content")
+		}
 	}
 }
 
@@ -88,10 +86,10 @@ func main() {
 		flag.Usage()
 		os.Exit(1)
 	}
-	fmt.Println(bps.GetVersion())
+	log.Println(bps.GetVersion())
 	t := time.Now()
-	fmt.Println("Create fixed index backup")
+	log.Println("Create fixed index backup")
 	backup("testbackup", t, *repoFlag, *pwFlag)
-	fmt.Println("Restore fixed index backup")
+	log.Println("Restore fixed index backup")
 	restore("testbackup", t, *repoFlag, *pwFlag)
 }
