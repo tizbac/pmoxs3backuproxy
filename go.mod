@@ -4,6 +4,7 @@ go 1.22.4
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/elbandi/go-proxmox-backup-client v0.0.0-20230507001507-b7f2bd6f7fcd // indirect
 	github.com/go-ini/ini v1.67.0 // indirect
 	github.com/goccy/go-json v0.10.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect

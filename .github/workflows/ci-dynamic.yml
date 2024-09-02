@@ -27,12 +27,15 @@ jobs:
           sudo apt install jq wget gawk -y >/dev/null 2>&1
           sudo wget https://enterprise.proxmox.com/debian/proxmox-release-bullseye.gpg -O /etc/apt/trusted.gpg.d/proxmox-release-bookworm.gpg
           echo "deb http://download.proxmox.com/debian/pbs-client bullseye main" | sudo tee -a /etc/apt/sources.list.d/pbs.list
-          sudo apt update -y >/dev/null 2>&1
-          sudo apt install -y proxmox-backup-client
+          echo "deb http://download.proxmox.com/debian/pve bullseye pve-no-subscription" | sudo tee -a /etc/apt/sources.list.d/pve.list
+          sudo apt update -y
+          sudo apt install -y proxmox-backup-client libproxmox-backup-qemu0-dev
       - name: "Build Proxy and GC"
         run: |
           go build  tizbac/pmoxs3backuproxy/cmd/pmoxs3backuproxy
           go build  tizbac/pmoxs3backuproxy/cmd/garbagecollector
+          go get github.com/elbandi/go-proxmox-backup-client
+          go build -o fdxtest tizbac/pmoxs3backuproxy/test
       - name: "Create backup and test restore"
         run: |
           echo "start proxy"
@@ -47,6 +50,7 @@ jobs:
           echo "create first backup"
           sudo -E proxmox-backup-client backup proxy.pxar:. --backup-id testbackup > /tmp/first_backup 2>&1
           cat /tmp/first_backup
+          sleep 5
           echo "create second backup"
           echo new-data > changed
           sudo -E proxmox-backup-client backup proxy.pxar:. --backup-id testbackup > /tmp/second_backup 2>&1
@@ -71,6 +75,8 @@ jobs:
           proxmox-backup-client snapshot protected update "$VER" true
           proxmox-backup-client snapshot protected show "$VER" | grep -q true
           proxmox-backup-client snapshot protected update "$VER" false
+          echo "run fixed index backup"
+          ./fdxtest -repo "$PBS_REPOSITORY" -password "$PBS_PASSWORD"
           echo "run GC"
           ./garbagecollector -endpoint $ENDPOINT -accesskey "$USERNAME" -secretkey "$PBS_PASSWORD" -bucket backups
           echo "list backups"
