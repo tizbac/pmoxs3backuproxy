@@ -19,6 +19,8 @@ package main
 import (
 	"crypto/sha256"
 	"flag"
+	"fmt"
+	"github.com/schollz/progressbar/v3"
 	"log"
 	"math/rand"
 	"os"
@@ -33,7 +35,15 @@ const (
 
 var sums []string
 
-func backup(id string, backupTime time.Time, repo string, password string, chunks uint64) {
+func backup(
+	id string,
+	imagename string,
+	backupTime time.Time,
+	repo string,
+	password string,
+	chunks uint64,
+	barFlag bool,
+) {
 	t := uint64(backupTime.Unix())
 	client, err := bps.NewBackup(repo, "", id, t, password, fingerprint, "", "", false)
 	if err != nil {
@@ -49,10 +59,15 @@ func backup(id string, backupTime time.Time, repo string, password string, chunk
 
 	imgsize := bps.GetDefaultChunkSize() * chunks
 	log.Printf("Create image with %d random chunks, size: %d", chunks, imgsize)
-	image, err := client.RegisterImage("test", imgsize)
+	image, err := client.RegisterImage(imagename, imgsize)
+
+	var bar *progressbar.ProgressBar
 	if err != nil {
 		log.Fatalln(err)
 	} else {
+		if barFlag {
+			bar = progressbar.DefaultBytes(int64(imgsize), "uploading")
+		}
 		var cnt uint64 = 0
 		for cnt = 0; cnt < chunks; cnt++ {
 			data := make([]byte, bps.GetDefaultChunkSize())
@@ -69,6 +84,9 @@ func backup(id string, backupTime time.Time, repo string, password string, chunk
 			if err != nil {
 				log.Fatalln(err)
 			}
+			if barFlag {
+				bar.Add(wlen)
+			}
 		}
 		image.Close()
 	}
@@ -78,20 +96,32 @@ func backup(id string, backupTime time.Time, repo string, password string, chunk
 	}
 }
 
-func restore(id string, backupTime time.Time, repo string, password string) {
+func restore(
+	id string,
+	imagename string,
+	backupTime time.Time,
+	repo string,
+	password string,
+	barFlag bool,
+) {
 	t := uint64(backupTime.Unix())
 	client, err := bps.NewRestore(repo, "vm", "vm", id, t, password, fingerprint, "", "")
 	if err != nil {
 		log.Fatalln(err)
 	}
 	defer client.Close()
-	image, err := client.OpenImage("test.img.fidx")
+	image, err := client.OpenImage(fmt.Sprintf("%s.img.fidx", imagename))
 	if err != nil {
 		log.Fatalln(err)
 	} else {
+		var bar *progressbar.ProgressBar
 		size, _ := image.Size()
 		log.Printf("Image size was: %d", size)
 		log.Println("Comparing chunks")
+
+		if barFlag {
+			bar = progressbar.DefaultBytes(int64(size), "downloading")
+		}
 		var cnt uint64 = 0
 		for cnt = 0; cnt < size/bps.GetDefaultChunkSize(); cnt++ {
 			data := make([]byte, bps.GetDefaultChunkSize())
@@ -102,6 +132,9 @@ func restore(id string, backupTime time.Time, repo string, password string) {
 			}
 			if err != nil {
 				log.Fatal(err)
+			}
+			if barFlag {
+				bar.Add(rlen)
 			}
 			sum := sha256.Sum256(data)
 			if sums[cnt] != string(sum[:]) {
@@ -116,6 +149,10 @@ func main() {
 	repoFlag := flag.String("repo", "", "Endpoint address")
 	pwFlag := flag.String("password", "", "Password")
 	lenFlag := flag.Uint64("len", 10, "Amount of chunks")
+	barFlag := flag.Bool("progressbar", false, "show progressbar")
+	backupFlag := flag.String("backupid", "testbackup", "backup id")
+	imgFlag := flag.String("imagename", "test", "image name")
+
 	flag.Parse()
 	if *repoFlag == "" || *pwFlag == "" {
 		flag.Usage()
@@ -123,8 +160,8 @@ func main() {
 	}
 	log.Println(bps.GetVersion())
 	t := time.Now()
-	log.Println("Create fixed index backup")
-	backup("testbackup", t, *repoFlag, *pwFlag, *lenFlag)
+	log.Printf("Create fixed index backup, imagename: %s, backup id: %s", *backupFlag, *imgFlag)
+	backup(*backupFlag, *imgFlag, t, *repoFlag, *pwFlag, *lenFlag, *barFlag)
 	log.Println("Restore fixed index backup")
-	restore("testbackup", t, *repoFlag, *pwFlag)
+	restore(*backupFlag, *imgFlag, t, *repoFlag, *pwFlag, *barFlag)
 }
