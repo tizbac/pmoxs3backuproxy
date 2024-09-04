@@ -58,7 +58,7 @@ func backup(
 	}
 
 	imgsize := bps.GetDefaultChunkSize() * chunks
-	log.Printf("Create image with %d random chunks, size: %d, random data: %t", chunks, imgsize, random)
+	log.Printf("Create image with %d chunks, size: %d, random data: %t", chunks, imgsize, random)
 	image, err := client.RegisterImage(imagename, imgsize)
 
 	var bar *progressbar.ProgressBar
