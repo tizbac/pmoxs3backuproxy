@@ -64,32 +64,31 @@ func backup(
 	var bar *progressbar.ProgressBar
 	if err != nil {
 		log.Fatalln(err)
-	} else {
-		if barFlag {
-			bar = progressbar.DefaultBytes(int64(imgsize), "uploading")
-		}
-		var cnt uint64 = 0
-		for cnt = 0; cnt < chunks; cnt++ {
-			data := make([]byte, bps.GetDefaultChunkSize())
-			for i := range data {
-				data[i] = byte(rand.Intn(256))
-			}
-			sum := sha256.Sum256(data)
-			sums = append(sums, string(sum[:]))
-			off := bps.GetDefaultChunkSize() * uint64(cnt)
-			wlen, err := image.WriteAt(data, int64(off))
-			if wlen != len(data) {
-				log.Fatalf("short write during backup")
-			}
-			if err != nil {
-				log.Fatalln(err)
-			}
-			if barFlag {
-				bar.Add(wlen)
-			}
-		}
-		image.Close()
 	}
+	if barFlag {
+		bar = progressbar.DefaultBytes(int64(imgsize), "uploading")
+	}
+	var cnt uint64 = 0
+	for cnt = 0; cnt < chunks; cnt++ {
+		data := make([]byte, bps.GetDefaultChunkSize())
+		for i := range data {
+			data[i] = byte(rand.Intn(256))
+		}
+		sum := sha256.Sum256(data)
+		sums = append(sums, string(sum[:]))
+		off := bps.GetDefaultChunkSize() * uint64(cnt)
+		wlen, err := image.WriteAt(data, int64(off))
+		if wlen != len(data) {
+			log.Fatalf("short write during backup")
+		}
+		if err != nil {
+			log.Fatalln(err)
+		}
+		if barFlag {
+			bar.Add(wlen)
+		}
+	}
+	image.Close()
 	err = client.Finish()
 	if err != nil {
 		log.Fatalln(err)
@@ -113,36 +112,35 @@ func restore(
 	image, err := client.OpenImage(fmt.Sprintf("%s.img.fidx", imagename))
 	if err != nil {
 		log.Fatalln(err)
-	} else {
-		var bar *progressbar.ProgressBar
-		size, _ := image.Size()
-		log.Printf("Image size was: %d", size)
-		log.Println("Comparing chunks")
-
-		if barFlag {
-			bar = progressbar.DefaultBytes(int64(size), "downloading")
-		}
-		var cnt uint64 = 0
-		for cnt = 0; cnt < size/bps.GetDefaultChunkSize(); cnt++ {
-			data := make([]byte, bps.GetDefaultChunkSize())
-			off := bps.GetDefaultChunkSize() * uint64(cnt)
-			rlen, err := image.ReadAt(data, int64(off))
-			if rlen != len(data) {
-				log.Fatalf("short read during restore")
-			}
-			if err != nil {
-				log.Fatal(err)
-			}
-			if barFlag {
-				bar.Add(rlen)
-			}
-			sum := sha256.Sum256(data)
-			if sums[cnt] != string(sum[:]) {
-				log.Fatalf("Checksum for restored block does not match: %s", string(sum[:]))
-			}
-		}
-		log.Printf("All restored checksums match")
 	}
+	var bar *progressbar.ProgressBar
+	size, _ := image.Size()
+	log.Printf("Image size was: %d", size)
+	log.Println("Comparing chunks")
+
+	if barFlag {
+		bar = progressbar.DefaultBytes(int64(size), "downloading")
+	}
+	var cnt uint64 = 0
+	for cnt = 0; cnt < size/bps.GetDefaultChunkSize(); cnt++ {
+		data := make([]byte, bps.GetDefaultChunkSize())
+		off := bps.GetDefaultChunkSize() * uint64(cnt)
+		rlen, err := image.ReadAt(data, int64(off))
+		if rlen != len(data) {
+			log.Fatalf("short read during restore")
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
+		if barFlag {
+			bar.Add(rlen)
+		}
+		sum := sha256.Sum256(data)
+		if sums[cnt] != string(sum[:]) {
+			log.Fatalf("Checksum for restored block does not match: %s", string(sum[:]))
+		}
+	}
+	log.Printf("All restored checksums match")
 }
 
 func main() {
