@@ -42,6 +42,7 @@ func backup(
 	chunks uint64,
 	barFlag bool,
 	compress bool,
+	random bool,
 ) {
 	t := uint64(backupTime.Unix())
 	client, err := bps.NewBackup(repo, namespace, id, t, password, fingerprint, "", "", compress)
@@ -57,7 +58,7 @@ func backup(
 	}
 
 	imgsize := bps.GetDefaultChunkSize() * chunks
-	log.Printf("Create image with %d random chunks, size: %d", chunks, imgsize)
+	log.Printf("Create image with %d random chunks, size: %d, random data: %t", chunks, imgsize, random)
 	image, err := client.RegisterImage(imagename, imgsize)
 
 	var bar *progressbar.ProgressBar
@@ -71,7 +72,11 @@ func backup(
 	for cnt = 0; cnt < chunks; cnt++ {
 		data := make([]byte, bps.GetDefaultChunkSize())
 		for i := range data {
-			data[i] = byte(rand.Intn(256))
+			if random {
+				data[i] = byte(rand.Intn(256))
+			} else {
+				data[i] = byte(0xFF)
+			}
 		}
 		sum := sha256.Sum256(data)
 		sums = append(sums, string(sum[:]))
@@ -153,6 +158,7 @@ func main() {
 	nsFlag := flag.String("namespace", "", "Namespace")
 	fpFlag := flag.String("fingerprint", "", "certificate fingerprint")
 	compFlag := flag.Bool("compress", false, "set compression flag")
+	randFlag := flag.Bool("random", true, "write random data")
 
 	flag.Parse()
 	if *repoFlag == "" || *pwFlag == "" {
@@ -165,7 +171,7 @@ func main() {
 	log.Println(bps.GetVersion())
 	t := time.Now()
 	log.Printf("Create fixed index backup, imagename: %s, backup id: %s", *backupFlag, *imgFlag)
-	backup(*backupFlag, *imgFlag, *nsFlag, t, *repoFlag, *pwFlag, *lenFlag, *barFlag, *compFlag)
+	backup(*backupFlag, *imgFlag, *nsFlag, t, *repoFlag, *pwFlag, *lenFlag, *barFlag, *compFlag, *randFlag)
 	log.Println("Restore fixed index backup")
 	restore(*backupFlag, *imgFlag, *nsFlag, t, *repoFlag, *pwFlag, *barFlag)
 }
