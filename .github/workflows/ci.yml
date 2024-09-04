@@ -1,4 +1,4 @@
-name: test dynamic index functionality
+name: test backup and restore functionality
 on: [push, pull_request]
 jobs:
   test:

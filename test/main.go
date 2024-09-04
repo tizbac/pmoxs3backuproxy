@@ -29,23 +29,22 @@ import (
 	bps "github.com/elbandi/go-proxmox-backup-client"
 )
 
-const (
-	fingerprint = "55:BC:29:4B:BA:B6:A1:03:42:A9:D8:51:14:9D:BD:00:D2:2A:9C:A1:B8:4A:85:E1:AF:B2:0C:48:40:D6:CC:A4"
-)
-
+var fingerprint = "55:BC:29:4B:BA:B6:A1:03:42:A9:D8:51:14:9D:BD:00:D2:2A:9C:A1:B8:4A:85:E1:AF:B2:0C:48:40:D6:CC:A4"
 var sums []string
 
 func backup(
 	id string,
 	imagename string,
+	namespace string,
 	backupTime time.Time,
 	repo string,
 	password string,
 	chunks uint64,
 	barFlag bool,
+	compress bool,
 ) {
 	t := uint64(backupTime.Unix())
-	client, err := bps.NewBackup(repo, "", id, t, password, fingerprint, "", "", false)
+	client, err := bps.NewBackup(repo, namespace, id, t, password, fingerprint, "", "", compress)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -98,13 +97,14 @@ func backup(
 func restore(
 	id string,
 	imagename string,
+	namespace string,
 	backupTime time.Time,
 	repo string,
 	password string,
 	barFlag bool,
 ) {
 	t := uint64(backupTime.Unix())
-	client, err := bps.NewRestore(repo, "vm", "vm", id, t, password, fingerprint, "", "")
+	client, err := bps.NewRestore(repo, namespace, "vm", id, t, password, fingerprint, "", "")
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -150,16 +150,22 @@ func main() {
 	barFlag := flag.Bool("progressbar", false, "show progressbar")
 	backupFlag := flag.String("backupid", "testbackup", "backup id")
 	imgFlag := flag.String("imagename", "test", "image name")
+	nsFlag := flag.String("namespace", "", "Namespace")
+	fpFlag := flag.String("fingerprint", "", "certificate fingerprint")
+	compFlag := flag.Bool("compress", false, "set compression flag")
 
 	flag.Parse()
 	if *repoFlag == "" || *pwFlag == "" {
 		flag.Usage()
 		os.Exit(1)
 	}
+	if *fpFlag != "" {
+		fingerprint = *fpFlag
+	}
 	log.Println(bps.GetVersion())
 	t := time.Now()
 	log.Printf("Create fixed index backup, imagename: %s, backup id: %s", *backupFlag, *imgFlag)
-	backup(*backupFlag, *imgFlag, t, *repoFlag, *pwFlag, *lenFlag, *barFlag)
+	backup(*backupFlag, *imgFlag, *nsFlag, t, *repoFlag, *pwFlag, *lenFlag, *barFlag, *compFlag)
 	log.Println("Restore fixed index backup")
-	restore(*backupFlag, *imgFlag, t, *repoFlag, *pwFlag, *barFlag)
+	restore(*backupFlag, *imgFlag, *nsFlag, t, *repoFlag, *pwFlag, *barFlag)
 }
