@@ -939,7 +939,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					minio.PutObjectOptions{},
 				)
 				if err != nil {
-					s3backuplog.ErrorPrint("Writing object %s failed: %s", digest, err.Error())
+					errResp := minio.ToErrorResponse(err)
+					s3backuplog.ErrorPrint("Writing object %s failed: %s: %s", digest, err.Error())
+					s3backuplog.ErrorPrint("Response: Code: %s, Message: %s, StatusCode: %s ", errResp.Code, errResp.Message, errResp.StatusCode)
 					w.WriteHeader(http.StatusInternalServerError)
 					w.Write([]byte(err.Error()))
 				}
