@@ -336,7 +336,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if action == "status" {
-			//Seems to not be supported by minio fecthing used size so we return dummy values to make all look fine
+			//Seems to not be supported by minio fetching used size so we return dummy values to make all look fine
 			resp, _ := json.Marshal(Response{
 				Data: DataStoreStatus{
 					Used:    10000,
@@ -391,7 +391,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					Files:      filelist,
 					BackupType: snap.BackupType,
 					/* During proxmox-backup-manager pull the sync job expects
-					 * a size field, otherwise it asumes the backup to be active
+					 * a size field, otherwise it assumes the backup to be active
 					 * and ignores it during sync
 					 **/
 					Size: 200,
@@ -942,7 +942,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					w.Write([]byte(err.Error()))
 				}
 			default:
-				s3backuplog.WarnPrint("Unhandled response checking for existant object: %s", errResponse.Code)
+				s3backuplog.WarnPrint("Unhandled response checking for existent object: %s", errResponse.Code)
 			}
 		} else {
 			s3backuplog.DebugPrint("%s already in S3, size: %d", objectStat.Key, objectStat.Size)
