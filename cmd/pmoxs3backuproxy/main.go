@@ -81,7 +81,7 @@ func certFingeprint(cfile string) *string {
 
 	certblock, _ := pem.Decode(certData)
 
-	if err != nil {
+	if certblock == nil {
 		s3backuplog.ErrorPrint("Failed to parse PEM file: %s", err)
 		return nil
 	}
@@ -105,8 +105,6 @@ func certFingeprint(cfile string) *string {
 	s = strings.ToUpper(s)
 
 	return &s
-
-	//s3backuplog.InfoPrint("Certificate fingerprint is %s", cert.PublicKey.)
 }
 
 func main() {
