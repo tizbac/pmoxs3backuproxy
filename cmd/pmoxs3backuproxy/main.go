@@ -82,7 +82,7 @@ func certFingeprint(cfile string) *string {
 	certblock, _ := pem.Decode(certData)
 
 	if certblock == nil {
-		s3backuplog.ErrorPrint("Failed to parse PEM file: %s", err)
+		s3backuplog.ErrorPrint("Failed to decode PEM file")
 		return nil
 	}
 
