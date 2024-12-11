@@ -20,6 +20,10 @@ WIP!!
 Use as follows
 
 Note: Garbage collector is experimental, use with extreme caution
+# New! 
+
+PBS 3.3+ has now Push direction support , trivial patch to emulate 3.3 PBS version has been made and push seems to work ok , for now has been tested only with fixed index 
+Speed since it is done in parallel is very very high :)
 
 # Working Features
 
