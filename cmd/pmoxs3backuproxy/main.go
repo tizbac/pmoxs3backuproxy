@@ -194,7 +194,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	s3backuplog.DebugPrint("Request:" + r.RequestURI + " Method: " + r.Method)
 	path := strings.Split(r.RequestURI, "/")
-
+	if strings.HasPrefix(r.RequestURI, "/api2/json/version") && auth {
+		w.Header().Add("Content-Type", "application/json")
+		resp, _ := json.Marshal(Response{
+			Data: VersionInfo{
+				Release: "0",
+				RepoID:  "f418479aaaa13ca794e2743296f9b909fe52516c",
+				Version: "3.3",
+			},
+		})
+		w.Write(resp)
+		return
+	}
 	if len(path) >= 7 && strings.HasPrefix(r.RequestURI, "/api2/json/admin/datastore/") && auth {
 		ds := path[5]
 		action := path[6]

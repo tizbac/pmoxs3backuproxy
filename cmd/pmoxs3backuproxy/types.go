@@ -104,3 +104,9 @@ type Response struct {
 	Data interface{} `json:"data"`
 	// other fields
 }
+
+type VersionInfo struct {
+	Release string `json:"release"`
+	RepoID  string `json:"repoid"`
+	Version string `json:"version"`
+}
