@@ -150,6 +150,7 @@ func main() {
 		if !strings.HasSuffix(object.Key, ".fidx") {
 			continue
 		}
+		s3backuplog.DebugPrint("Metadata content: [%s]", object.UserMetadata)
 		if object.UserMetadata["X-Amz-Meta-Csum"] == "" {
 			s3backuplog.FatalPrint("%s: object has no csum metadata flag set", object.Key)
 		}
