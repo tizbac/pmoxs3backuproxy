@@ -40,6 +40,27 @@ func compareSum(csum []byte, index []byte, metadatasum string) error {
 	return nil
 }
 
+func getObjectMetdata(ctx context.Context, bucketFlag string, object minio.ObjectInfo, minioClient *minio.Client) string {
+	s3backuplog.DebugPrint("User Metadata content: [%s]", object.UserMetadata)
+	csum := object.UserMetadata["X-Amz-Meta-Csum"]
+	if csum == "" {
+		s3backuplog.WarnPrint("No metadata found, retry with StatObject", object.Key)
+
+		statObject, err := minioClient.StatObject(ctx, bucketFlag, object.Key, minio.StatObjectOptions{})
+		if err != nil {
+			s3backuplog.FatalPrint("%s: unable to stat object: [%s]", object.Key, err.Error())
+		}
+		s3backuplog.DebugPrint("StatObject User Metadata content: [%s]", statObject.UserMetadata)
+		csum = statObject.UserMetadata["X-Amz-Meta-Csum"]
+	}
+
+	if csum == "" {
+		s3backuplog.FatalPrint("%s: object has no csum metadata flag set", object.Key)
+	}
+
+	return csum
+}
+
 func main() {
 	endpointFlag := flag.String("endpoint", "", "S3 Endpoint without https/http , host:port")
 	secureFlag := flag.Bool("usessl", false, "Use SSL for endpoint connection: default: false")
@@ -150,11 +171,8 @@ func main() {
 		if !strings.HasSuffix(object.Key, ".fidx") {
 			continue
 		}
-		s3backuplog.DebugPrint("Metadata content: [%s]", object.UserMetadata)
-		if object.UserMetadata["X-Amz-Meta-Csum"] == "" {
-			s3backuplog.FatalPrint("%s: object has no csum metadata flag set", object.Key)
-		}
-		knownHashes[object.UserMetadata["X-Amz-Meta-Csum"]] = true
+		csum := getObjectMetdata(ctx, *bucketFlag, object, minioClient)
+		knownHashes[csum] = true
 	}
 	s3backuplog.InfoPrint("%v object hashes found", len(knownHashes))
 
@@ -167,9 +185,9 @@ func main() {
 			Prefix:       "indexed/",
 			WithMetadata: true,
 		}) {
-			_, ok := knownHashes[object.UserMetadata["X-Amz-Meta-Csum"]]
+			_, ok := knownHashes[getObjectMetdata(ctx, *bucketFlag, object, minioClient)]
 			if !ok {
-				s3backuplog.InfoPrint("Removing orphaned object hash %s for object %s", object.UserMetadata["X-Amz-Meta-Csum"], object.Key)
+				s3backuplog.InfoPrint("Removing orphaned object hash %s for object %s", getObjectMetdata(ctx, *bucketFlag, object, minioClient), object.Key)
 				objectsCh <- object
 			}
 		}
@@ -201,7 +219,7 @@ func main() {
 			if !bytes.Equal(data[0:8], s3pmoxcommon.PROXMOX_INDEX_MAGIC_FIXED[:]) {
 				s3backuplog.FatalPrint("Fixed index %s has wrong magic", object.Key)
 			}
-			if csumerr := compareSum(data[32:64], data[4096:], object.UserMetadata["X-Amz-Meta-Csum"]); csumerr != nil {
+			if csumerr := compareSum(data[32:64], data[4096:], getObjectMetdata(ctx, *bucketFlag, object, minioClient)); csumerr != nil {
 				s3backuplog.FatalPrint("%s", csumerr.Error())
 			}
 
@@ -234,7 +252,7 @@ func main() {
 			if !bytes.Equal(data[0:8], s3pmoxcommon.PROXMOX_INDEX_MAGIC_DYNAMIC[:]) {
 				s3backuplog.FatalPrint("Dynamic index %s has wrong magic", object.Key)
 			}
-			if csumerr := compareSum(data[32:64], data[4096:], object.UserMetadata["X-Amz-Meta-Csum"]); csumerr != nil {
+			if csumerr := compareSum(data[32:64], data[4096:], getObjectMetdata(ctx, *bucketFlag, object, minioClient)); csumerr != nil {
 				s3backuplog.FatalPrint("%s", csumerr.Error())
 			}
 
