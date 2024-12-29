@@ -524,16 +524,23 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.Snapshot.BackupTime,
 		)
 		if err != nil {
+			s3backuplog.DebugPrint("Unable to get latest snapshot: [%s]", err.Error())
 			w.WriteHeader(http.StatusInternalServerError)
 			io.WriteString(w, err.Error())
 			return
 		}
 		if mostRecent == nil {
+			s3backuplog.DebugPrint("Latest snapshot not found, returning StatusNotFound")
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		io.WriteString(w, fmt.Sprintf("%d", mostRecent.BackupTime))
+		s3backuplog.DebugPrint("Return previous backup time: [%d]", mostRecent.BackupTime)
+
+		r := Response{Data: mostRecent.BackupTime}
+		responsedata, _ := json.Marshal(r)
+		w.Header().Add("Content-Type", "application/json")
+		w.Write(responsedata)
 	}
 
 	if strings.HasPrefix(r.RequestURI, "/previous?") && s.H2Ticket != nil && r.Method == "GET" {
