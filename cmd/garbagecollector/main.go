@@ -51,7 +51,7 @@ func getObjectMetdata(ctx context.Context, bucketFlag string, object minio.Objec
 			s3backuplog.FatalPrint("%s: unable to stat object: [%s]", object.Key, err.Error())
 		}
 		s3backuplog.DebugPrint("StatObject User Metadata content: [%s]", statObject.UserMetadata)
-		csum = statObject.UserMetadata["X-Amz-Meta-Csum"]
+		csum = statObject.UserMetadata["Csum"]
 	}
 
 	if csum == "" {
