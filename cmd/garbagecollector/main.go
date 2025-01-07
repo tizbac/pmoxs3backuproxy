@@ -69,7 +69,6 @@ func getObjectMetdata(ctx context.Context, bucketFlag string, object minio.Objec
 }
 
 func main() {
-	s3backuplog.InfoPrint("%s %s %s %s", os.Args[0], version, commit, date)
 	var printVersion bool
 	endpointFlag := flag.String("endpoint", "", "S3 Endpoint without https/http , host:port")
 	secureFlag := flag.Bool("usessl", false, "Use SSL for endpoint connection: default: false")
@@ -88,6 +87,7 @@ func main() {
 		fmt.Println(version)
 		os.Exit(0)
 	}
+	s3backuplog.InfoPrint("%s %s %s %s", os.Args[0], version, commit, date)
 	if *endpointFlag == "" || *accessKeyID == "" || (*secretKey == "" && *secretKeyFile == "") || *bucketFlag == "" {
 		flag.Usage()
 		os.Exit(1)

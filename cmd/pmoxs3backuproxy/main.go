@@ -113,7 +113,6 @@ func certFingeprint(cfile string) *string {
 }
 
 func main() {
-	s3backuplog.InfoPrint("%s %s %s %s", os.Args[0], version, commit, date)
 	var printVersion bool
 	certFlag := flag.String("cert", "server.crt", "Server SSL certificate file")
 	keyFlag := flag.String("key", "server.key", "Server SSL key file")
@@ -130,6 +129,7 @@ func main() {
 		fmt.Println(version)
 		os.Exit(0)
 	}
+	s3backuplog.InfoPrint("%s %s %s %s", os.Args[0], version, commit, date)
 	if *endpointFlag == "" {
 		flag.Usage()
 		os.Exit(1)
