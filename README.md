@@ -20,22 +20,18 @@ WIP!!
 Use as follows
 
 Note: Garbage collector is experimental, use with extreme caution
-# New! 
-
-PBS 3.3+ has now Push direction support , trivial patch to emulate 3.3 PBS version has been made and push seems to work ok , for now has been tested only with fixed index 
-Speed since it is done in parallel is very very high :)
 
 # Working Features
 
 The following features are currently implemented:
 
+ * As with PBS 3.3+ you can use the PBS [push and pull features](https://pbs.proxmox.com/docs/managing-remotes.html) for syncing your
+   backups to/from S3 compatible backends.
  * Configure proxy in PVE and use it for both CT and VM backups (full and incremental)
  * Restore functionality (VM restore, mount, map)
  * Basic PVE UI integration: adding notes, setting the protection flag,
    removing backups, showing configuration.
  * File backup/restore/mount via proxmox-backup-client (full and incremental)
- * Using it as remote store in PBS to pull backups via `proxmox-backup-manager
-   pull`
 
 # Known issues
 ## S3 Restore Performance / Considerations
@@ -43,8 +39,11 @@ The following features are currently implemented:
 Both the proxmox VM and file backup client will split the backups into many
 small chunks, S3 is not known to perform well upon reading many small files.
 
-The bigger your bucket gets/your backups are, the more likely you will see
-performance issues during restore.
+If using the proxy as direct datastore, the more likely you will see
+performance issues during restore, depending on the amount of objects stored.
+
+Using the PBS Push or Pull functions can greatly enhance speeds to sync your
+backups, as they are done in parallel.
 
 Also think about cost peaks for object read operations. The proxmox backup
 clients will request required chunks sequentially, there is currently no
