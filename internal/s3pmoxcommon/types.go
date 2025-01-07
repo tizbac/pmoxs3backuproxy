@@ -1,6 +1,5 @@
 package s3pmoxcommon
 
-var PROXY_VERSION string = "0.0.5"
 var PROXMOX_INDEX_MAGIC_DYNAMIC = [8]byte{28, 145, 78, 165, 25, 186, 179, 205}
 var PROXMOX_INDEX_MAGIC_FIXED = [8]byte{47, 127, 65, 237, 145, 253, 15, 205}
 
