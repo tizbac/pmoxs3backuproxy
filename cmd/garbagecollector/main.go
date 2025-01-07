@@ -9,16 +9,23 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/juju/clock"
-	"github.com/juju/mutex/v2"
-	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 	"io"
 	"os"
 	"strings"
 	"time"
 	"tizbac/pmoxs3backuproxy/internal/s3backuplog"
 	"tizbac/pmoxs3backuproxy/internal/s3pmoxcommon"
+
+	"github.com/juju/clock"
+	"github.com/juju/mutex/v2"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
+)
+
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
 )
 
 func compareSum(csum []byte, index []byte, metadatasum string) error {
@@ -62,7 +69,7 @@ func getObjectMetdata(ctx context.Context, bucketFlag string, object minio.Objec
 }
 
 func main() {
-	s3backuplog.InfoPrint("%s version: %s", os.Args[0], s3pmoxcommon.PROXY_VERSION)
+	s3backuplog.InfoPrint("%s %s %s %s", os.Args[0], version, commit, date)
 	var printVersion bool
 	endpointFlag := flag.String("endpoint", "", "S3 Endpoint without https/http , host:port")
 	secureFlag := flag.Bool("usessl", false, "Use SSL for endpoint connection: default: false")
@@ -78,7 +85,7 @@ func main() {
 	debug := flag.Bool("debug", false, "Debug logging")
 	flag.Parse()
 	if printVersion {
-		fmt.Println(s3pmoxcommon.PROXY_VERSION)
+		fmt.Println(version)
 		os.Exit(0)
 	}
 	if *endpointFlag == "" || *accessKeyID == "" || (*secretKey == "" && *secretKeyFile == "") || *bucketFlag == "" {
