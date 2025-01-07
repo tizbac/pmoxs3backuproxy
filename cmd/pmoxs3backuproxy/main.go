@@ -108,6 +108,8 @@ func certFingeprint(cfile string) *string {
 }
 
 func main() {
+	s3backuplog.InfoPrint("%s version: %s", os.Args[0], s3pmoxcommon.PROXY_VERSION)
+	var printVersion bool
 	certFlag := flag.String("cert", "server.crt", "Server SSL certificate file")
 	keyFlag := flag.String("key", "server.key", "Server SSL key file")
 	endpointFlag := flag.String("endpoint", "", "S3 Endpoint without https/http , host:port")
@@ -116,7 +118,13 @@ func main() {
 	ticketExpireFlag := flag.Uint64("ticketexpire", 3600, "API Ticket expire time in seconds")
 	lookupTypeFlag := flag.String("lookuptype", "auto", "Bucket lookup type: auto,dns,path")
 	debug := flag.Bool("debug", false, "Debug logging")
+	flag.BoolVar(&printVersion, "version", false, "Show version and exit")
+	flag.BoolVar(&printVersion, "v", false, "Show version and exit")
 	flag.Parse()
+	if printVersion {
+		fmt.Println(s3pmoxcommon.PROXY_VERSION)
+		os.Exit(0)
+	}
 	if *endpointFlag == "" {
 		flag.Usage()
 		os.Exit(1)

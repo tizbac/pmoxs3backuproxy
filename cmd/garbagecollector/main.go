@@ -62,6 +62,8 @@ func getObjectMetdata(ctx context.Context, bucketFlag string, object minio.Objec
 }
 
 func main() {
+	s3backuplog.InfoPrint("%s version: %s", os.Args[0], s3pmoxcommon.PROXY_VERSION)
+	var printVersion bool
 	endpointFlag := flag.String("endpoint", "", "S3 Endpoint without https/http , host:port")
 	secureFlag := flag.Bool("usessl", false, "Use SSL for endpoint connection: default: false")
 	bucketFlag := flag.String("bucket", "", "Bucket to perform garbage collection on")
@@ -69,9 +71,16 @@ func main() {
 	secretKey := flag.String("secretkey", "", "S3 Secret Key, discouraged , use a file if possible")
 	secretKeyFile := flag.String("secretkeyfile", "", "S3 Secret Key File")
 	retentionDays := flag.Uint("retention", 60, "Number of days to keep backups for")
+	flag.BoolVar(&printVersion, "version", false, "Show version and exit")
+	flag.BoolVar(&printVersion, "v", false, "Show version and exit")
+
 	lookupTypeFlag := flag.String("lookuptype", "auto", "Bucket lookup type: auto,dns,path")
 	debug := flag.Bool("debug", false, "Debug logging")
 	flag.Parse()
+	if printVersion {
+		fmt.Println(s3pmoxcommon.PROXY_VERSION)
+		os.Exit(0)
+	}
 	if *endpointFlag == "" || *accessKeyID == "" || (*secretKey == "" && *secretKeyFile == "") || *bucketFlag == "" {
 		flag.Usage()
 		os.Exit(1)
