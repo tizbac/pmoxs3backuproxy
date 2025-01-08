@@ -4,12 +4,13 @@
 
 - [Working Features](#working-features)
 - [Known issues](#known-issues)
-  - [S3 Performance / Considerations](#s3-performance--considerations)
+  - [S3 Restore Performance / Considerations](#s3-restore-performance--considerations)
   - [Sizes shown in PVE frontend](#sizes-shown-in-pve-frontend)
 - [Usage](#usage)
 - [Quickstart](#quickstart)
-    - [minio](#minio)
-    - [PVE configuration](#pve-configuration)
+    - [Setup minio](#setup-minio)
+    - [PVE configuration: direct backup](#pve-configuration-direct-backup)
+    - [PBS configuration: using the proxy as remote](#pbs-configuration-using-the-proxy-as-remote)
     - [Proxmox backup client](#proxmox-backup-client)
 - [Running with Docker](#running-with-docker)
 - [Notes](#notes)
@@ -106,7 +107,7 @@ Usage of ./garbagecollector:
 ```
 
 # Quickstart
-### minio
+### Setup minio
 
 Start minio server (either on the PVE system or on a remote system),
 specify the listening IP via `--address`
@@ -137,11 +138,11 @@ Start the proxy via:
 pmoxs3backuproxy -endpoint 127.0.0.1:9000
 ```
 
-### PVE configuration
+### PVE configuration: direct backup
 
-The on PVE add proxmox backup server storage 
+Add the proxy endpoint as proxmox backup server storage using the following address:
 
-127.0.0.1:8007 
+`127.0.0.1:8007`
 
 Use
 
@@ -149,11 +150,18 @@ Use
 55:BC:29:4B:BA:B6:A1:03:42:A9:D8:51:14:9D:BD:00:D2:2A:9C:A1:B8:4A:85:E1:AF:B2:0C:48:40:D6:CC:A4
 ```
 
-as fingerprint, if you intend to bind on public network with potential MITM,
-please regenerate server certificate !!
+`Note:` if you intend to run the proxy on a public network, please replace the
+included certificates with your own to prevent possible MITM attacks.
 
-Use the created access_key@pbs for username, and secret key as password, and
-bucket as datastore
+Use the created access_key@pbs for username and secret key as password, bucket
+as datastore
+
+
+### PBS configuration: using the proxy as remote
+
+If you want to use the proxy as remote datastore in PBS, configure it as
+described in the [proxmox manual](https://pbs.proxmox.com/~g-remotes.html)
+
 
 ### Proxmox backup client
 
