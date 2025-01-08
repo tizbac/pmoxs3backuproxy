@@ -160,7 +160,7 @@ as datastore
 ### PBS configuration: using the proxy as remote
 
 If you want to use the proxy as remote datastore in PBS, configure it as
-described in the [proxmox manual](https://pbs.proxmox.com/~g-remotes.html)
+described in the [proxmox manual](https://pbs.proxmox.com/docs/managing-remotes.html)
 
 
 ### Proxmox backup client
