@@ -198,6 +198,10 @@ For increased security, you can add the following security parameters without af
     cap_drop:
       - ALL
 ```
+To execute the garbage collector set a different entrypoint:
+```
+ docker run --entrypoint /garbagecollector -it ghcr.io/tizbac/pmoxs3backuproxy:latest
+```
 
 # Notes
 
