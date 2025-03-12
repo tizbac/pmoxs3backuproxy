@@ -78,6 +78,7 @@ type Group struct {
 	Files      []string `json:"files"`
 	BackupTime uint64   `json:"last-backup"`
 	Size       uint64   `json:"size"`
+	Owner      string   `json:"owner"`
 }
 
 type AssignmentRequest struct {

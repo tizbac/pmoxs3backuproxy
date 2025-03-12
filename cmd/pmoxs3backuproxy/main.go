@@ -418,7 +418,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					 * a size field, otherwise it assumes the backup to be active
 					 * and ignores it during sync
 					 **/
-					Size: 200,
+					Size:  200,
+					Owner: C.AccessKeyID + "@pbs",
 				}
 				var exists bool = false
 				for k := range groups {
