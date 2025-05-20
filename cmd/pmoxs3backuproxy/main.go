@@ -490,7 +490,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				 **/
 				var snapshots []s3pmoxcommon.Snapshot
 				var err error
-				var returned []s3pmoxcommon.Snapshot
+				var returned = make([]s3pmoxcommon.Snapshot, 0)
 
 				// single snapshot requested without datastore
 				id := r.URL.Query().Get("backup-id")
