@@ -656,6 +656,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			FidxName:    fidxname,
 			Size:        S,
 			ReuseCSUM:   reusecsum,
+			Chunksize:   4194304,
 		}
 		writer_mux.Unlock()
 		w.Header().Add("Content-Type", "application/json")
