@@ -503,7 +503,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				}
 
 				/**
-				 * Go through all snapshos and return the right one
+				 * Go through all snapshots and return the right one
 				 **/
 				if id != "" {
 					for k := range snapshots {
@@ -513,7 +513,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 
-				if len(returned) > 0 {
+				if len(returned) > 0 || id != "" {
 					snapshots = returned
 				}
 
